@@ -1,11 +1,14 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/thezzisu/bltrader/master/lib"
+)
 
 func main() {
-	fmt.Println("Master node")
-}
-
-func Fuck() {
-	//
+	lib.Logger.Println("starting...")
+	config := lib.LoadMasterConfig()
+	lib.Logger.SetPrefix(fmt.Sprintf("[master %s] ", config.Name))
+	lib.Logger.Println("configuration loaded")
 }

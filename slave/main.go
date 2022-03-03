@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"runtime"
 
-	lib "github.com/thezzisu/bltrader/slave/lib"
+	"github.com/thezzisu/bltrader/slave/lib"
 )
 
 func main() {
 	lib.Logger.Println("starting...")
 	config := lib.LoadSlaveConfig()
 	lib.Logger.SetPrefix(fmt.Sprintf("[slave: %s] ", config.Name))
-	lib.Logger.Println("config:", config)
+	lib.Logger.Println("configuration loaded")
 
 	cpus := runtime.NumCPU()
 	lib.Logger.Println("cpus:", cpus)

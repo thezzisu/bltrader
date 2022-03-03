@@ -6,21 +6,21 @@ import (
 	"path"
 )
 
-type SlaveConfig struct {
+type MasterConfig struct {
 	Name string `json:"Name"`
 }
 
-func LoadSlaveConfig() SlaveConfig {
+func LoadMasterConfig() MasterConfig {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
 		Logger.Fatal(err)
 	}
-	configPath = path.Join(configPath, "bltrader", "slave.json")
+	configPath = path.Join(configPath, "bltrader", "master.json")
 	configContent, err := os.ReadFile(configPath)
 	if err != nil {
 		Logger.Fatal(err)
 	}
-	var config SlaveConfig
+	var config MasterConfig
 	err = json.Unmarshal(configContent, &config)
 	if err != nil {
 		Logger.Fatal(err)
