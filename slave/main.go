@@ -2,11 +2,17 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 
-	"github.com/thezzisu/bltrader/slave/core"
+	lib "github.com/thezzisu/bltrader/slave/lib"
 )
 
 func main() {
-	fmt.Println("Slave node")
-	fmt.Println(core.Pi)
+	lib.Logger.Println("starting...")
+	config := lib.LoadSlaveConfig()
+	lib.Logger.SetPrefix(fmt.Sprintf("[slave: %s] ", config.Name))
+	lib.Logger.Println("config:", config)
+
+	cpus := runtime.NumCPU()
+	lib.Logger.Println("cpus:", cpus)
 }
