@@ -8,9 +8,10 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-pub fn read_hdf5<T: hdf5::H5Type>(filename: &str) -> (Vec<u32>, Vec<T>) {
+pub fn read_hdf5<T: hdf5::H5Type>(filename: &str, dataset: &str) -> (Vec<u32>, Vec<T>) {
+    println!("[io] parsing hdf5 {}", filename);
     let file = hdf5::File::open(filename).unwrap();
-    let ds = file.dataset("order_id").unwrap();
+    let ds = file.dataset(dataset).unwrap();
     let shape = ds.shape().iter().map(|x| *x as u32).collect::<Vec<_>>();
     let mat = ds.read_raw::<T>().unwrap();
     (shape, mat)
@@ -18,7 +19,7 @@ pub fn read_hdf5<T: hdf5::H5Type>(filename: &str) -> (Vec<u32>, Vec<T>) {
 
 pub fn process_id(filename: &str) -> Vec<Arc<RwLock<Vec<(i32, u32)>>>> {
     println!("[io] processing id file {}", filename);
-    let (shape, mat) = read_hdf5::<i32>(filename);
+    let (shape, mat) = read_hdf5::<i32>(filename, "order_id");
     let (n, m, k) = (shape[0], shape[1], shape[2]);
     println!("[io] id shape = {} {} {}", n, m, k);
     let offset = (m * k) as usize;
@@ -110,9 +111,4 @@ pub fn process_id_cached(filename: &str, cache: &str) -> Vec<Arc<RwLock<Vec<(i32
         write_cache(&cache_file, &arcs);
         arcs
     }
-}
-
-pub fn load_prices(filename: &str) -> Vec<Vec<f64>> {
-    println!("[io] loading prices file {}", filename);
-    vec![]
 }
