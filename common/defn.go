@@ -11,6 +11,11 @@ type BLOrder struct {
 	Volume    int
 }
 
+const (
+	DirBuy  = 1
+	DirSell = -1
+)
+
 func (order BLOrder) String() string {
 	return fmt.Sprintf("Order {\n\tstk = %d\n\torder = %d\n\tdirection = %d\n\ttype = %d\n\tprice = %f\n\tvolume = %d\n}", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
 }
