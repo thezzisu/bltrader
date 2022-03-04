@@ -3,24 +3,24 @@ package core
 import "github.com/thezzisu/bltrader/common"
 
 type Queue struct {
-	head	*LinkNode
-	tail	*LinkNode
+	head *LinkNode
+	tail *LinkNode
 }
 
 type LinkNode struct {
-	prev  *LinkNode
-	next  *LinkNode
+	prev     *LinkNode
+	next     *LinkNode
 	nextFree *LinkNode
-	order *common.BLOrder
+	order    *common.BLOrder
 }
 
-func (queue *Queue) Push(s *Chunk,order *common.BLOrder){
+func (queue *Queue) Push(s *Chunk, order *common.BLOrder) {
 	v := s.Malloc()
 	v.order = order
-	v.next = v.prev = nil
-	if(queue.head == nil){
-		queue.head = queue.tail = v
-	}else{
+	v.next, v.prev = nil, nil
+	if queue.head == nil {
+		queue.head, queue.tail = v, v
+	} else {
 		queue.tail.next = v
 		v.prev = queue.tail
 		queue.tail = v
@@ -28,12 +28,12 @@ func (queue *Queue) Push(s *Chunk,order *common.BLOrder){
 }
 
 func (queue *Queue) Free(s *Chunk) {
-	if(queue.head == nil){
-		return nil
+	if queue.head == nil {
+		return
 	}
-	if(queue.head == queue.tail){
+	if queue.head == queue.tail {
 		s.Free(queue.head)
-		queue.head = queue.tail = nil
+		queue.head, queue.tail = nil, nil
 	}
 	hn := queue.head.next
 	s.Free(queue.head)
@@ -41,13 +41,13 @@ func (queue *Queue) Free(s *Chunk) {
 }
 
 func (queue *Queue) Pop(s *Chunk) *common.BLOrder {
-	if(queue.head == nil){
+	if queue.head == nil {
 		return nil
 	}
-	if(queue.head == queue.tail){
+	if queue.head == queue.tail {
 		r := queue.head.order
 		s.Free(queue.head)
-		queue.head = queue.tail = nil
+		queue.head, queue.tail = nil, nil
 		return r
 	}
 	hn := queue.head.next
