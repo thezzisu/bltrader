@@ -5,7 +5,7 @@ import "fmt"
 type BLOrder struct {
 	StkCode   int
 	OrderId   int
-	Direction int
+	Direction int //1buy -1sell
 	Type      int
 	Price     float64
 	Volume    int
@@ -22,8 +22,8 @@ func (order BLOrder) String() string {
 
 type BLTrade struct {
 	StkCode int
-	BidId   int
-	AskId   int
+	BidId   int //买方
+	AskId   int //卖方
 	Price   float64
 	Volume  int
 }

@@ -5,15 +5,15 @@ import (
 	"encoding/binary"
 	"os"
 
-	arbt "github.com/octogan/rbt"
+	arbt "github.com/ocdogan/rbt"
 	"github.com/thezzisu/bltrader/common"
 )
 
 type BLRunner struct {
 	BuyTree    *arbt.RbTree
 	SellTree   *arbt.RbTree
-	BuyVolume  uint64
-	SellVolume uint64
+	BuyVolume  int
+	SellVolume int
 	QueueSlab  *Chunk
 	LowerPrice float64
 	UpperPrice float64
@@ -76,9 +76,9 @@ func GenTrade(order *common.BLOrder, ordee *common.BLOrder, price float64, isBuy
 func (blrunner *BLRunner) dealLimit(order *common.BLOrder) []common.BLTrade {
 	rbt := blrunner.OtherTree(order) //对方树指针
 	isMeBuy := rbt == blrunner.SellTree
-	bound := Float64Key(-order.Price)
+	bound := arbt.Float64Key(-order.Price)
 	trades := make([]common.BLTrade, 0, 1)
-	iterator, err := rbt.NewRbIterator(func(iterator RbIterator, key RbKey, value interface{}) {
+	iterator, _ := rbt.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
 		u := value.head
 		for ; u != nil && !iterator.Closed(); u = value.head {
 			if u.order.Volume <= order.Volume {
@@ -96,13 +96,13 @@ func (blrunner *BLRunner) dealLimit(order *common.BLOrder) []common.BLTrade {
 			rbt.Delete(key)
 		}
 	})
-	iterator.LessOrEqual(bound)
+	iterator.LessOrEqual(&bound)
 	if order.Volume > 0 {
 		blrunner.MyTree(order).InsertOrder(order)
-		if isBuy {
-			BuyVolume += order.Volume
+		if isMeBuy {
+			blrunner.BuyVolume += order.Volume
 		} else {
-			SellVolume += order.Volume
+			blrunner.SellVolume += order.Volume
 		}
 	}
 	return trades
@@ -112,14 +112,14 @@ func (blrunner *BLRunner) oppoBest(order *common.BLOrder) []common.BLTrade {
 	rbt := blrunner.OtherTree(order)
 	isMeBuy := rbt == blrunner.SellTree //我方是否是买方
 	trades := make([]common.BLTrade, 0, 1)
-	if isMeBuy && SellVolume == 0 || !isMeBuy && BuyVolume == 0 {
+	if isMeBuy && blrunner.SellVolume == 0 || !isMeBuy && blrunner.BuyVolume == 0 {
 		return trades
 	}
 	//修改
 	//大改
 
-	price, _ = rbt.Min()
-	order.Price = -price
+	price, _ := rbt.Min()
+	order.Price = -float64(*price.(*arbt.Float64Key))
 	return blrunner.dealLimit(order)
 }
 
@@ -127,11 +127,11 @@ func (blrunner *BLRunner) selfBest(order *common.BLOrder) []common.BLTrade {
 	rbt := blrunner.MyTree(order)
 	isMeBuy := rbt == blrunner.BuyTree
 	trades := make([]common.BLTrade, 0, 1)
-	if isMeBuy && BuyVolume == 0 || !isMeBuy && SellVolume == 0 {
+	if isMeBuy && blrunner.BuyVolume == 0 || !isMeBuy && blrunner.SellVolume == 0 {
 		return trades
 	}
-	price, _ = rbt.Max()
-	order.Price = price
+	price, _ := rbt.Max()
+	order.Price = float64(*price.(*arbt.Float64Key)) //类型不匹配
 	return blrunner.dealLimit(order)
 }
 
@@ -139,13 +139,13 @@ func (blrunner *BLRunner) insOnce(order *common.BLOrder) []common.BLTrade {
 	rbt := blrunner.OtherTree(order)
 	isMeBuy := rbt == blrunner.SellTree
 	trades := make([]common.BLTrade, 0, 1)
-	iterator, err := rbt.NewRbIterator(func(iterator RbIterator, key RbKey, value interface{}) {
+	iterator, _ := rbt.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
 		u := value.head
 		for ; u != nil && !iterator.Closed(); u = value.head {
 			if u.order.Volume <= order.Volume {
 				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
 				order.Volume -= u.order.Volume
-				value.Pop(blrunner.QueueSlab)
+				value.Free(blrunner.QueueSlab)
 			} else {
 				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
 				u.order.Volume -= order.Volume
@@ -166,13 +166,13 @@ func (blrunner *BLRunner) ins5Once(order *common.BLOrder) []common.BLTrade {
 	isMeBuy := rbt == blrunner.SellTree
 	trades := make([]common.BLTrade, 0, 1)
 	k := 0
-	iterator, err := rbt.NewRbIterator(func(iterator RbIterator, key RbKey, value interface{}) {
+	iterator, _ := rbt.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
 		u := value.head
 		for ; u != nil && !iterator.Closed(); u = value.head {
 			if u.order.Volume <= order.Volume {
 				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
 				order.Volume -= u.order.Volume
-				value.Pop(blrunner.QueueSlab)
+				value.Free(blrunner.QueueSlab)
 			} else {
 				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
 				u.order.Volume -= order.Volume
@@ -208,7 +208,7 @@ func (blrunner *BLRunner) allinOnce(order *common.BLOrder) []common.BLTrade {
 }
 
 func (rbt *arbt.RbTree) InsertOrder(order *common.BLOrder) {
-	price := Float64Key(order.Price)
+	price := arbt.Float64Key(order.Price)
 	if node, ok := rbt.Get(&price); ok {
 		node.Push(blrunner.Chunk, order)
 	} else {
@@ -219,14 +219,14 @@ func (rbt *arbt.RbTree) InsertOrder(order *common.BLOrder) {
 }
 
 func (blrunner *BLRunner) Load(lower float64, upper float64) {
-	blrunner.BuyTree = NewRbTree()
-	blrunner.SellTree = NewRbTree()
+	blrunner.BuyTree = arbt.NewRbTree()
+	blrunner.SellTree = arbt.NewRbTree()
 	blrunner.LowerPrice = lower
 	blrunner.UpperPrice = upper
 	const ChunkSize = 1048576
-	QueueSlab = NewChunk(ChunkSize)
-	buyFile, errB := os.OpenFile("./buy_cache", os.RDONLY, 0777)
-	sellFile, errS := os.OpenFile("./sell_cache", os.RDONLY, 0777)
+	blrunner.QueueSlab = NewChunk(ChunkSize)
+	buyFile, errB := os.OpenFile("./buy_cache", os.O_RDONLY, 0777)
+	sellFile, errS := os.OpenFile("./sell_cache", os.O_RDONLY, 0777)
 	if errB != nil || errS != nil {
 		blrunner.BuyVolume, blrunner.SellVolume = 0, 0
 		if errB == nil {
@@ -238,14 +238,14 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 		return
 	}
 	buf := make([]byte, 8)
-	if n, err := buyFile.Read(buf); err == nil {
+	if _, err := buyFile.Read(buf); err == nil {
 		rbuf := bytes.NewReader(buf)
 		binary.Read(rbuf, binary.LittleEndian, &blrunner.BuyVolume)
 		//blrunner.BuyVolume = int64(buf)
 	} else {
 		panic("Cache corrupt")
 	}
-	if n, err := sellFile.Read(buf); err == nil {
+	if _, err := sellFile.Read(buf); err == nil {
 		rbuf := bytes.NewReader(buf)
 		binary.Read(rbuf, binary.LittleEndian, &blrunner.SellVolume)
 		//blrunner.SellVolume = int64(buf)
@@ -265,14 +265,14 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 	}
 	buf = make([]byte, 28)
 	for {
-		if n, err := buyFile.Read(buf); err == nil {
+		if _, err := buyFile.Read(buf); err == nil {
 			blrunner.BuyTree.InsertOrder(parse(buf))
 		} else {
 			break
 		}
 	}
 	for {
-		if n, err := sellFile.Read(buf); err == nil {
+		if _, err := sellFile.Read(buf); err == nil {
 			blrunner.SellTree.InsertOrder(parse(buf))
 		} else {
 			break
@@ -283,45 +283,47 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 }
 
 func (blrunner *BLRunner) Dump() {
-	buyFile, errB := os.OpenFile("./buy_cache", os.WRONLY, 0777)
-	sellFile, errS := os.OpenFile("./sell_cache", os.WRONLY, 0777)
+	buyFile, errB := os.OpenFile("./buy_cache", os.O_WRONLY, 0777)
+	sellFile, errS := os.OpenFile("./sell_cache", os.O_WRONLY, 0777)
 	if errB != nil || errS != nil {
 		panic("Failed to write cache")
 	}
 	wbuf := new(bytes.Buffer)
-	_ := binary.Write(wbuf, binary.LittleEndian, BuyVolume)
-	_, _ := buyFile.Write(wbuf.Bytes)
+	_ = binary.Write(wbuf, binary.LittleEndian, blrunner.BuyVolume)
+	_, _ = buyFile.Write(wbuf.Bytes())
 	wbuf = new(bytes.Buffer)
-	_ := binary.Write(wbuf, binary.LittleEndian, SellVolume)
-	_, _ := sellFile.Write(wbuf.Bytes)
-	iterator, err := blrunner.BuyTree.NewRbIterator(func(iterator RbIterator, key RbKey, value interface{}) {
+	_ = binary.Write(wbuf, binary.LittleEndian, blrunner.SellVolume)
+	_, _ = sellFile.Write(wbuf.Bytes())
+	iterator, _ := blrunner.BuyTree.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
 		u := value.head
 		for ; u != nil; u = u.next {
 			wbuf := new(bytes.Buffer)
-			_ := binary.Write(wbuf, binary.LittleEndian, StkCode)
-			_ := binary.Write(wbuf, binary.LittleEndian, OrderId)
-			_ := binary.Write(wbuf, binary.LittleEndian, Direction)
-			_ := binary.Write(wbuf, binary.LittleEndian, Type)
-			_ := binary.Write(wbuf, binary.LittleEndian, Price)
-			_ := binary.Write(wbuf, binary.LittleEndian, Volume)
-			_, _ := buyFile.Write(wbuf.Bytes)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.OrderId)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.StkCode)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Direction)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Type)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Price)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Volume)
+			_, _ = buyFile.Write(wbuf.Bytes())
 		}
 	})
 	iterator.All()
-	iterator, err := blrunner.SellTree.NewRbIterator(func(iterator RbIterator, key RbKey, value interface{}) {
+	iterator, _ = blrunner.SellTree.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
 		u := value.head
 		for ; u != nil; u = u.next {
-			wbuf := new(bytes.Buffer)
-			_ := binary.Write(wbuf, binary.LittleEndian, StkCode)
-			_ := binary.Write(wbuf, binary.LittleEndian, OrderId)
-			_ := binary.Write(wbuf, binary.LittleEndian, Direction)
-			_ := binary.Write(wbuf, binary.LittleEndian, Type)
-			_ := binary.Write(wbuf, binary.LittleEndian, Price)
-			_ := binary.Write(wbuf, binary.LittleEndian, Volume)
-			_, _ := sellFile.Write(wbuf.Bytes)
+			wbuf = new(bytes.Buffer)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.StkCode)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.OrderId)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Direction)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Type)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Price)
+			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Volume)
+			_, _ = sellFile.Write(wbuf.Bytes())
 		}
 	})
 	iterator.All()
 	buyFile.Close()
 	sellFile.Close()
 }
+
+//load and dump 64->int
