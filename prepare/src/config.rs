@@ -10,6 +10,7 @@ pub struct IOConfig {
     pub volume_file: String,
     pub type_file: String,
     pub direction_file: String,
+    pub hook_file: String,
     pub cache_dir: String,
     pub chunk_size: usize,
 }

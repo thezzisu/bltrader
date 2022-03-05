@@ -2,7 +2,8 @@ import sys
 import h5py
 import struct
 
-DATA_ROOT = "../.data/"
+# DATA_ROOT = "../.data/"
+DATA_ROOT = "D:\\Downloads\\"
 P_PRICE = "price"
 P_ORDERID = "order_id"
 P_VOLUME = "volume"

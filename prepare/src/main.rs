@@ -3,7 +3,7 @@ use bltrader_prepare::prepare::prepare;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config()?;
-    prepare(&config);
+    prepare(config);
     println!("[io] done");
     Ok(())
 }

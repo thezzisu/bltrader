@@ -2,6 +2,7 @@ package lib
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 )
@@ -29,4 +30,6 @@ func init() {
 		Logger.Fatal(err)
 	}
 	Config = config
+	Logger.SetPrefix(fmt.Sprintf("[master %s] ", Config.Name))
+	Logger.Println("config loaded")
 }

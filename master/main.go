@@ -8,9 +8,8 @@ import (
 
 func main() {
 	lib.Logger.Println("starting...")
-	lib.Logger.SetPrefix(fmt.Sprintf("[master %s] ", lib.Config.Name))
-	lib.Logger.Println("configuration loaded")
 	lib.CheckCache()
 	chunk := lib.LoadOrderChunk(9, 0)
-	fmt.Println(len(chunk))
+	fmt.Println(len(chunk), cap(chunk))
+	fmt.Println(chunk[0])
 }
