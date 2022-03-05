@@ -3,12 +3,12 @@ package common
 import "fmt"
 
 type BLOrder struct {
-	StkCode   int
-	OrderId   int
-	Direction int //1buy -1sell
-	Type      int
+	StkCode   int32
+	OrderId   int32
+	Direction int32 //1 for buy, -1 for sell
+	Type      int32
 	Price     float64
-	Volume    int
+	Volume    int32
 }
 
 const (
@@ -21,11 +21,11 @@ func (order BLOrder) String() string {
 }
 
 type BLTrade struct {
-	StkCode int
-	BidId   int //买方
-	AskId   int //卖方
+	StkCode int32
+	BidId   int32 //买方
+	AskId   int32 //卖方
 	Price   float64
-	Volume  int
+	Volume  int32
 }
 
 func (trade BLTrade) String() string {
