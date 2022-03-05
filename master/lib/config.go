@@ -7,10 +7,13 @@ import (
 )
 
 type MasterConfig struct {
-	Name string `json:"Name"`
+	Name     string `json:"Name"`
+	CacheDir string `json:"CacheDir"`
 }
 
-func LoadMasterConfig() MasterConfig {
+var Config MasterConfig
+
+func init() {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
 		Logger.Fatal(err)
@@ -25,5 +28,5 @@ func LoadMasterConfig() MasterConfig {
 	if err != nil {
 		Logger.Fatal(err)
 	}
-	return config
+	Config = config
 }

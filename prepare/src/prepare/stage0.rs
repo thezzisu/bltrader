@@ -50,16 +50,16 @@ fn write_cache(cache_file: &Path, items: &Vec<StockIds>) {
         .unwrap();
     let mut writer = BufWriter::with_capacity(64 * 1024, file);
     writer
-        .write_all(&(items.len() as u32).to_ne_bytes())
+        .write_all(&(items.len() as u32).to_le_bytes())
         .unwrap();
     for item in items {
-        writer.write(&(item.0.to_ne_bytes())).unwrap();
+        writer.write(&(item.0.to_le_bytes())).unwrap();
         writer
-            .write_all(&(item.1.len() as u32).to_ne_bytes())
+            .write_all(&(item.1.len() as u32).to_le_bytes())
             .unwrap();
         for (k, v) in item.1.iter() {
-            writer.write_all(&k.to_ne_bytes()).unwrap();
-            writer.write_all(&v.to_ne_bytes()).unwrap();
+            writer.write_all(&k.to_le_bytes()).unwrap();
+            writer.write_all(&v.to_le_bytes()).unwrap();
         }
     }
     println!("[io] [stage-0] cache file written");
@@ -71,19 +71,19 @@ fn load_cache(cache_file: &Path) -> Vec<StockIds> {
     let mut reader = BufReader::with_capacity(64 * 1024, file);
     let mut buf = [0; 4]; // i32
     reader.read_exact(&mut buf).unwrap();
-    let n = u32::from_ne_bytes(buf);
+    let n = u32::from_le_bytes(buf);
     let mut arcs: Vec<StockIds> = vec![];
     for _ in 0..n {
         reader.read_exact(&mut buf).unwrap();
-        let n = i32::from_ne_bytes(buf);
+        let n = i32::from_le_bytes(buf);
         reader.read_exact(&mut buf).unwrap();
-        let m = u32::from_ne_bytes(buf);
+        let m = u32::from_le_bytes(buf);
         let mut raw_items: Vec<(i32, u32)> = vec![];
         for _ in 0..m {
             reader.read_exact(&mut buf).unwrap();
-            let k = i32::from_ne_bytes(buf);
+            let k = i32::from_le_bytes(buf);
             reader.read_exact(&mut buf).unwrap();
-            let l = u32::from_ne_bytes(buf);
+            let l = u32::from_le_bytes(buf);
             raw_items.push((k, l));
         }
         arcs.push((n, raw_items));

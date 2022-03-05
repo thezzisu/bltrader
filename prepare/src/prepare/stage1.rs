@@ -38,7 +38,7 @@ fn reorder_matrix_i32(
                 reordered.push(mat_ref[*offset as usize]);
             }
             for (chunk_id, chunk) in reordered.chunks(chunk_size).enumerate() {
-                let cache_file = cache_root.join(format!("{}-{}.bin", dataset, chunk_id));
+                let cache_file = cache_root.join(format!("{}.{}.bin", dataset, chunk_id));
                 let mut writer = BufWriter::new(
                     fs::OpenOptions::new()
                         .write(true)
@@ -47,10 +47,10 @@ fn reorder_matrix_i32(
                         .unwrap(),
                 );
                 writer
-                    .write_all(&(chunk.len() as u32).to_ne_bytes())
+                    .write_all(&(chunk.len() as u32).to_le_bytes())
                     .unwrap();
                 for item in chunk {
-                    writer.write_all(&item.to_ne_bytes()).unwrap();
+                    writer.write_all(&item.to_le_bytes()).unwrap();
                 }
             }
             id
@@ -91,7 +91,7 @@ fn reorder_matrix_f64(
                 reordered.push(mat_ref[*offset as usize]);
             }
             for (chunk_id, chunk) in reordered.chunks(chunk_size).enumerate() {
-                let cache_file = cache_root.join(format!("{}-{}.bin", dataset, chunk_id));
+                let cache_file = cache_root.join(format!("{}.{}.bin", dataset, chunk_id));
                 let mut writer = BufWriter::new(
                     fs::OpenOptions::new()
                         .write(true)
@@ -100,10 +100,10 @@ fn reorder_matrix_f64(
                         .unwrap(),
                 );
                 writer
-                    .write_all(&(chunk.len() as u32).to_ne_bytes())
+                    .write_all(&(chunk.len() as u32).to_le_bytes())
                     .unwrap();
                 for item in chunk {
-                    writer.write_all(&item.to_ne_bytes()).unwrap();
+                    writer.write_all(&item.to_le_bytes()).unwrap();
                 }
             }
             id
@@ -131,7 +131,7 @@ fn save_ids(config: &IOConfig, cache_root: &Path, ids: Vec<StockIds>) {
             create_dir_all(&cache_root).unwrap();
 
             for (chunk_id, chunk) in id.1.chunks(chunk_size).enumerate() {
-                let cache_file = cache_root.join(format!("{}-{}.bin", "id", chunk_id));
+                let cache_file = cache_root.join(format!("order_id.{}.bin", chunk_id));
                 let mut writer = BufWriter::new(
                     fs::OpenOptions::new()
                         .write(true)
@@ -140,10 +140,10 @@ fn save_ids(config: &IOConfig, cache_root: &Path, ids: Vec<StockIds>) {
                         .unwrap(),
                 );
                 writer
-                    .write_all(&(chunk.len() as u32).to_ne_bytes())
+                    .write_all(&(chunk.len() as u32).to_le_bytes())
                     .unwrap();
                 for item in chunk {
-                    writer.write_all(&item.0.to_ne_bytes()).unwrap();
+                    writer.write_all(&item.0.to_le_bytes()).unwrap();
                 }
             }
         }));
