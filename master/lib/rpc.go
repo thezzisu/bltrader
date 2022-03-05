@@ -3,10 +3,20 @@ package lib
 import (
 	"net"
 	"sync"
+	"time"
 
 	"github.com/thezzisu/bltrader/common"
 	"github.com/thezzisu/bltrader/smux"
 )
+
+var smuxConfig = &smux.Config{
+	Version:           1,
+	KeepAliveInterval: 1 * time.Second,
+	KeepAliveTimeout:  3 * time.Second,
+	MaxFrameSize:      32768,
+	MaxReceiveBuffer:  4194304,
+	MaxStreamBuffer:   65536,
+}
 
 type RPCEndpoint struct {
 	rpc *RPC
@@ -49,12 +59,12 @@ func (e *RPCEndpoint) IsClosed() bool {
 func (e *RPCEndpoint) MainLoop() {
 	addr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
 	if err != nil {
-		Logger.Println(err)
+		Logger.Println("RPCEndpoint.MainLoop:ResolveTCPAddr", err)
 		return
 	}
 	e.listener, err = net.ListenTCP("tcp", addr)
 	if err != nil {
-		Logger.Println(err)
+		Logger.Println("RPCEndpoint.MainLoop:ListenTCP", err)
 		return
 	}
 	defer e.listener.Close()
@@ -64,23 +74,24 @@ func (e *RPCEndpoint) MainLoop() {
 	for !e.IsClosed() {
 		e.conn, err = e.listener.AcceptTCP()
 		if err != nil {
-			Logger.Println(err)
+			Logger.Println("RPCEndpoint.MainLoop:AcceptTCP", err)
 			continue
 		}
 		Logger.Printf("Endpoint accepted connection from %s", e.conn.RemoteAddr().String())
-		e.sess, err = smux.Server(e.conn, nil)
+		e.sess, err = smux.Server(e.conn, smuxConfig)
 		if err != nil {
-			Logger.Println(err)
+			Logger.Println("RPCEndpoint.MainLoop:smux.Server", err)
 			continue
 		}
 		for !e.sess.IsClosed() {
 			stream, err := e.sess.AcceptStream()
 			if err != nil {
-				Logger.Println(err)
-				continue
+				Logger.Println("RPCEndpoint.MainLoop:AcceptStream", err)
+				break
 			}
 			go e.hub.HandleConn(stream)
 		}
+		e.sess.Close()
 		e.conn.Close()
 	}
 }

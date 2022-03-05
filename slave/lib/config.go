@@ -2,15 +2,20 @@ package lib
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 )
 
 type SlaveConfig struct {
-	Name string `json:"Name"`
+	Name    string `json:"Name"`
+	DataDir string `json:"DataDir"`
+	Magic   uint32 `json:"Magic"`
 }
 
-func LoadSlaveConfig() SlaveConfig {
+var Config SlaveConfig
+
+func init() {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
 		Logger.Fatal(err)
@@ -25,5 +30,7 @@ func LoadSlaveConfig() SlaveConfig {
 	if err != nil {
 		Logger.Fatal(err)
 	}
-	return config
+	Config = config
+	Logger.SetPrefix(fmt.Sprintf("[slave %s] ", Config.Name))
+	Logger.Println("config loaded")
 }

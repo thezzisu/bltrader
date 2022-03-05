@@ -15,7 +15,9 @@ func (h *Hub) GetCommandChan() chan<- *IPCRequest {
 }
 
 func (h *Hub) HandleConn(conn io.ReadWriteCloser) {
-	// TODO
+	buf := make([]byte, 1024)
+	n, _ := conn.Read(buf)
+	Logger.Println(string(buf[:n]))
 }
 
 func (h *Hub) exit() {

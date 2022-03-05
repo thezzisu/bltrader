@@ -2,6 +2,7 @@ package lib
 
 import (
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 
@@ -155,6 +156,15 @@ func (r *RPC) MainLoop() {
 			return
 		}
 	}
+}
+
+func (r *RPC) Dial() (io.ReadWriteCloser, error) {
+	n := len(r.endpoints)
+	if n == 0 {
+		return nil, ErrAgain
+	}
+	endpoint := r.endpoints[rand.Intn(n)]
+	return endpoint.Dial()
 }
 
 func CreateRPC() *RPC {
