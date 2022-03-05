@@ -1,7 +1,6 @@
 # BLTrader - IO
 
-This module is responsible for the IO part of BLTrader.
-It offers a simple API to extract data from HFP5 files.
+This module is responsible for the preprocess of data.
 
 ## Build
 

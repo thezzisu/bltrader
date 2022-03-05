@@ -1,3 +1,3 @@
-# BLTrader Smux
+# BLTrader - Smux
 
-Credit: `github.com/xtaci/smux`
+Based on: `github.com/xtaci/smux`
