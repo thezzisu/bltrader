@@ -1,31 +1,45 @@
 package core
 
 import (
-	"bytes"
 	"encoding/binary"
-	"os"
-
-	arbt "github.com/ocdogan/rbt"
+	"encoding/gob"
 	"github.com/thezzisu/bltrader/common"
+	"bytes"
+	"fmt"
+	"io"
+	"os"
+	"sync"
+	"github.com/emirpasic/gods/maps/treemap"
+
 )
 
+type ShortOrder struct{
+	OrderId		int32
+	Price		float64
+	Volume		int32
+}
+func (order *ShortOrder) FromJSON(msg []byte) error {
+	_ = json.Unmarshal(msg, order)
+}
+func (order *ShortOrder) ToJSON() []byte {
+	str, _ := json.Marshal(order)
+	return str
+}
+
 type BLRunner struct {
-	BuyTree    *arbt.RbTree
-	SellTree   *arbt.RbTree
-	BuyVolume  int
-	SellVolume int
-	QueueSlab  *Chunk
-	LowerPrice float64
-	UpperPrice float64
+	buyTree *treemap
+	sellTree *treemap
+	buyVolume int32
+	sellVolume int32
+	lowerPrice float64
+	upperPrice float64
+	queuePool *sync.Pool
 }
 
 func (blrunner *BLRunner) Dispatch(order *common.BLOrder) []common.BLTrade {
 	if order.Price > blrunner.UpperPrice || order.Price < blrunner.LowerPrice {
 		return []common.BLTrade{}
-	} //静态上下界
-	if order.Type == common.DirBuy {
-		order.Price = -order.Price
-	} //
+	}
 	switch order.Type {
 	case 0:
 		return blrunner.dealLimit(order)
@@ -43,66 +57,77 @@ func (blrunner *BLRunner) Dispatch(order *common.BLOrder) []common.BLTrade {
 	panic("[BLRunner Dispatch] No such order type")
 }
 
-func (blrunner *BLRunner) MyTree(order *common.BLOrder) *arbt.RbTree {
-	if order.Direction == common.DirBuy {
-		return blrunner.BuyTree
-	} else {
-		return blrunner.SellTree
+func (blrunner *BLRunner) MyTree(order *common.BLOrder) *treemap {
+	if(order.Type == common.DirBuy){
+		return blrunner.buyTree
+	}else{
+		return blrunner.sellTree
 	}
 }
-func (blrunner *BLRunner) OtherTree(order *common.BLOrder) *arbt.RbTree {
-	if order.Direction == common.DirSell {
-		return blrunner.BuyTree
-	} else {
-		return blrunner.SellTree
+func (blrunner *BLRunner) OtherTree(order *common.BLOrder) *treemap {
+	if(order.Type == common.DirBuy){
+		return blrunner.buyTree
+	}else{
+		return blrunner.sellTree
 	}
 }
 
-//ordee树上挂着的 order主动方 checked
-func GenTrade(order *common.BLOrder, ordee *common.BLOrder, price float64, isBuy bool) common.BLTrade {
-	var vol int
-	if order.Volume > ordee.Volume {
-		vol = ordee.Volume
-	} else {
-		vol = order.Volume
+func (blrunner *BLRunner) GenTrade(order *common.BLOrder,ordee *ShortOrder,price float64,isMeBuy bool) common.BLTrade {
+	vol := order.Volume - ordee.Volume
+	if(vol < 0){
+		vol = -vol
 	}
-	if isBuy {
-		return common.BLTrade{StkCode: order.StkCode, BidId: order.OrderId, AskId: ordee.OrderId, Price: -price, Volume: vol}
-	} else {
-		return common.BLTrade{StkCode: order.StkCode, BidId: ordee.OrderId, AskId: order.OrderId, Price: price, Volume: vol}
+	if isMeBuy{
+		blrunner.sellVolume -= vol
+		return common.BLTrade{StkCode:order.StkCode,BidId:order.OrderId,AskId:ordee.OrderId,Price:price,Volume:vol}
+	}else{
+		blrunner.buyVolume -= vol
+		return common.BLTrade{StkCode:order.StkCode,BidId:ordee.OrderId,AskId:order.OrderId,Price:price,Volume:vol}
 	}
 }
 
 func (blrunner *BLRunner) dealLimit(order *common.BLOrder) []common.BLTrade {
-	rbt := blrunner.OtherTree(order) //对方树指针
-	isMeBuy := rbt == blrunner.SellTree
-	bound := arbt.Float64Key(-order.Price)
-	trades := make([]common.BLTrade, 0, 1)
-	iterator, _ := rbt.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
-		u := value.head
-		for ; u != nil && !iterator.Closed(); u = value.head {
-			if u.order.Volume <= order.Volume {
-				trades = append(trades, GenTrade(order, u.order, -u.order.Price, isMeBuy))
-				order.Volume -= u.order.Volume
-				value.Free(blrunner.QueueSlab)
-			} else {
-				trades = append(trades, GenTrade(order, u.order, -u.order.Price, isMeBuy))
-				u.order.Volume -= order.Volume
-				order.Volume = 0
-				iterator.Close()
+	rbt := blrunner.OtherTree(order)
+	isMeBuy := order.Direction == DirBuy
+	trades := make([]common.BLTrade,0,1)
+	shorter := ShortOrder{order.OrderId,order.Price,order.Volume}
+	bound := order.Price
+	it := rbt.Iterator()
+	for it.Next() {
+		oprice,q := it.Key(),it.Value()
+		if(isMeBuy){
+			if(oprice > bound){
+				break
+			}
+		}else{
+			if(oprice < bound){
+				break
 			}
 		}
-		if value.head == nil {
-			rbt.Delete(key)
+		u := q.head
+		endFlag := false
+		for ;u != nil && !endFlag;u = q.head{
+			if(u.order.Volume <= shorter.Volume){
+				trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+				order.Volume -= u.order.Volume
+				q.Free(blrunner.queuePool)
+			}else{
+				trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+				u.order.Volume -= shorter.Volume
+				shorter.Volume = 0
+				endFlag = true
+			}
 		}
-	})
-	iterator.LessOrEqual(&bound)
-	if order.Volume > 0 {
-		blrunner.MyTree(order).InsertOrder(order)
-		if isMeBuy {
-			blrunner.BuyVolume += order.Volume
-		} else {
-			blrunner.SellVolume += order.Volume
+		if(q.head == nil){
+			rbt.Remove(oprice)
+		}
+	}
+	if(shorter.Volume > 0){
+		blrunner.InsertOrder(blrunner.MyTree(order),shorter)
+		if(isBuy){
+			blrunner.buyVolume += shorter.Volume
+		}else{
+			blrunner.sellVolume += shorter.Volume
 		}
 	}
 	return trades
@@ -110,96 +135,125 @@ func (blrunner *BLRunner) dealLimit(order *common.BLOrder) []common.BLTrade {
 
 func (blrunner *BLRunner) oppoBest(order *common.BLOrder) []common.BLTrade {
 	rbt := blrunner.OtherTree(order)
-	isMeBuy := rbt == blrunner.SellTree //我方是否是买方
-	trades := make([]common.BLTrade, 0, 1)
-	if isMeBuy && blrunner.SellVolume == 0 || !isMeBuy && blrunner.BuyVolume == 0 {
+	isMeBuy := order.Direction == DirBuy
+	trades := make([]common.BLTrade,0,1)
+	if(isMeBuy && blrunner.sellVolume == 0 || !isMeBuy && blrunner.buyVolume == 0){
 		return trades
 	}
-	//修改
-	//大改
-
-	price, _ := rbt.Min()
-	order.Price = -float64(*price.(*arbt.Float64Key))
-	return blrunner.dealLimit(order)
+	shorter := ShortOrder{order.OrderId,order.Price,order.Volume}
+	shorter.Price,q := rbt.Min()
+	u := q.head
+	endFlag := false
+	for ;u != nil && !endFlag;u = q.head{
+		if(u.order.Volume <= shorter.Volume){
+			trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+			shorter.Volume -= u.order.Volume
+			q.Free(blrunner.queuePool)
+		}else{
+			trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+			u.order.Volume -= shorter.Volume
+			shorter.Volume = 0
+			endFlag = true
+		}
+	}
+	if(q.head == nil){
+		rbt.Remove(shorter.Price)
+	}
+	if(shorter.Volume > 0){
+		blrunner.InsertOrder(blrunner.MyTree(order),shorter)
+		if(isBuy){
+			blrunner.buyVolume += shorter.Volume
+		}else{
+			blrunner.sellVolume += shorter.Volume
+		}
+	}
+	return trades
 }
 
 func (blrunner *BLRunner) selfBest(order *common.BLOrder) []common.BLTrade {
-	rbt := blrunner.MyTree(order)
-	isMeBuy := rbt == blrunner.BuyTree
-	trades := make([]common.BLTrade, 0, 1)
-	if isMeBuy && blrunner.BuyVolume == 0 || !isMeBuy && blrunner.SellVolume == 0 {
+	rbt := blrunner.OtherTree(order)
+	isMeBuy := order.Direction == DirBuy
+	trades := make([]common.BLTrade,0,1)
+	if(isMeBuy && blrunner.buyVolume == 0 || !isMeBuy && blrunner.sellVolume == 0){
 		return trades
 	}
-	price, _ := rbt.Max()
-	order.Price = float64(*price.(*arbt.Float64Key)) //类型不匹配
-	return blrunner.dealLimit(order)
+	shorter := ShortOrder{order.OrderId,order.Price,order.Volume}
+	shorter.Price,q := rbt.Max()
+	q.Push(blrunner.queuePool,shorter)
+	return trades
 }
 
 func (blrunner *BLRunner) insOnce(order *common.BLOrder) []common.BLTrade {
 	rbt := blrunner.OtherTree(order)
-	isMeBuy := rbt == blrunner.SellTree
-	trades := make([]common.BLTrade, 0, 1)
-	iterator, _ := rbt.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
-		u := value.head
-		for ; u != nil && !iterator.Closed(); u = value.head {
-			if u.order.Volume <= order.Volume {
-				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
-				order.Volume -= u.order.Volume
-				value.Free(blrunner.QueueSlab)
-			} else {
-				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
-				u.order.Volume -= order.Volume
-				order.Volume = 0
-				iterator.Close()
+	isMeBuy := order.Direction == DirBuy
+	trades := make([]common.BLTrade,0,1)
+	shorter := ShortOrder{order.OrderId,order.Price,order.Volume}
+	it := rbt.Iterator()
+	for it.Next() {
+		oprice,q := it.Key(),it.Value()
+		u := q.head
+		endFlag := false
+		for ;u != nil && !endFlag;u = q.head{
+			if(u.order.Volume <= shorter.Volume){
+				trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+				shorter.Volume -= u.order.Volume
+				q.Free(blrunner.queuePool)
+			}else{
+				trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+				u.order.Volume -= shorter.Volume
+				shorter.Volume = 0
+				endFlag = true
 			}
 		}
-		if value.head == nil {
-			rbt.Delete(key)
+		if(q.head == nil){
+			rbt.Remove(oprice)
 		}
-	})
-	iterator.All()
+	}
 	return trades
 }
 
 func (blrunner *BLRunner) ins5Once(order *common.BLOrder) []common.BLTrade {
 	rbt := blrunner.OtherTree(order)
-	isMeBuy := rbt == blrunner.SellTree
-	trades := make([]common.BLTrade, 0, 1)
+	isMeBuy := order.Direction == DirBuy
+	trades := make([]common.BLTrade,0,1)
+	shorter := ShortOrder{order.OrderId,order.Price,order.Volume}
+	it := rbt.Iterator()
 	k := 0
-	iterator, _ := rbt.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
-		u := value.head
-		for ; u != nil && !iterator.Closed(); u = value.head {
-			if u.order.Volume <= order.Volume {
-				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
-				order.Volume -= u.order.Volume
-				value.Free(blrunner.QueueSlab)
-			} else {
-				trades = append(trades, GenTrade(order, u.order, -u.order.price, isMeBuy))
-				u.order.Volume -= order.Volume
-				order.Volume = 0
-				iterator.Close()
+	for it.Next() {
+		oprice,q := it.Key(),it.Value()
+		u := q.head
+		endFlag := false
+		for ;u != nil && !endFlag;u = q.head{
+			if(u.order.Volume <= shorter.Volume){
+				trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+				shorter.Volume -= u.order.Volume
+				q.Free(blrunner.queuePool)
+			}else{
+				trades = append(trades,GenTrades(order,u.order,u.order.price,isMeBuy))
+				u.order.Volume -= shorter.Volume
+				shorter.Volume = 0
+				endFlag = true
 			}
 		}
-		if value.head == nil {
-			rbt.Delete(key)
+		if(q.head == nil){
+			rbt.Remove(oprice)
 		}
-		if k++; k >= 5 {
-			iterator.Close()
+		if k++;k >= 5{
+			break
 		}
-	})
-	iterator.All()
+	}
 	return trades
 }
 
 func (blrunner *BLRunner) allinOnce(order *common.BLOrder) []common.BLTrade {
 	if order.Direction == common.DirBuy {
-		if order.Volume <= int(blrunner.SellVolume) {
+		if order.Volume <= blrunner.sellVolume {
 			return blrunner.insOnce(order)
 		} else {
 			return []common.BLTrade{}
 		}
 	} else {
-		if order.Volume <= int(blrunner.BuyVolume) {
+		if order.Volume <= blrunner.buyVolume {
 			return blrunner.insOnce(order)
 		} else {
 			return []common.BLTrade{}
@@ -207,123 +261,132 @@ func (blrunner *BLRunner) allinOnce(order *common.BLOrder) []common.BLTrade {
 	}
 }
 
-func (rbt *arbt.RbTree) InsertOrder(order *common.BLOrder) {
-	price := arbt.Float64Key(order.Price)
-	if node, ok := rbt.Get(&price); ok {
-		node.Push(blrunner.Chunk, order)
-	} else {
-		node = new(Queue)
-		node.Push(blrunner.Chunk, order)
-		rbt.Insert(&price, node)
+func byPriceAscend(a, b interface{}) int {
+	c1 := a.(ShortOrder)
+	c2 := b.(ShortOrder)
+	switch {
+	case c1.Price > c2.Price:
+		return 1
+	case c1.Price < c2.Price:
+		return -1
+	default:
+		return 0
+	}
+}
+func byPriceDescend(a, b interface{}) int {
+	c1 := a.(ShortOrder)
+	c2 := b.(ShortOrder)
+	switch {
+	case c1.Price < c2.Price:
+		return 1
+	case c1.Price > c2.Price:
+		return -1
+	default:
+		return 0
 	}
 }
 
-func (blrunner *BLRunner) Load(lower float64, upper float64) {
-	blrunner.BuyTree = arbt.NewRbTree()
-	blrunner.SellTree = arbt.NewRbTree()
+func (blrunner *BLRunner) InsertOrder(rbt *treemap,order *ShortOrder){
+	if q,ok := rbt.Get(order.Price) ; !ok{
+		q = new(Queue)
+		rbt.Put(order.Price,q)
+	}
+	q.Push(blrunner.queuePool,order)
+}
+
+func (blrunner *BLRunner) Load(lower float64,upper float64){
+	blrunner.buyTree = treemap.NewWith(byPriceDescend)
+	blrunner.sellTree = treemap.NewWith(byPriceAscend)
 	blrunner.LowerPrice = lower
 	blrunner.UpperPrice = upper
-	const ChunkSize = 1048576
-	blrunner.QueueSlab = NewChunk(ChunkSize)
-	buyFile, errB := os.OpenFile("./buy_cache", os.O_RDONLY, 0777)
-	sellFile, errS := os.OpenFile("./sell_cache", os.O_RDONLY, 0777)
-	if errB != nil || errS != nil {
-		blrunner.BuyVolume, blrunner.SellVolume = 0, 0
-		if errB == nil {
-			buyFile.Close()
+	blrunner.queuePool = sync.pool{
+		New: func() interface{} {
+			return new(LinkNode)
 		}
-		if errS == nil {
-			sellFile.Close()
+	}
+	bFile,errB := os.OpenFile("./buy_cache",os.RDONLY,0777)
+	sFile,errS := os.OpenFile("./sell_cache",os.RDONLY,0777)
+	if(errB != nil || errS != nil){
+		blrunner.buyVolume , blrunner.sellVolume = 0
+		if(errB == nil){
+			bFile.Close()
+		}
+		if(errS == nil){
+			sFile.Close()
 		}
 		return
 	}
-	buf := make([]byte, 8)
-	if _, err := buyFile.Read(buf); err == nil {
-		rbuf := bytes.NewReader(buf)
-		binary.Read(rbuf, binary.LittleEndian, &blrunner.BuyVolume)
-		//blrunner.BuyVolume = int64(buf)
-	} else {
+	buf := make([]byte,4)
+	rb := bytes.NewReader(buf)
+	if _,err := bFile.Read(buf);err == nil{
+		binary.Read(rb,binary.LittleEndian,&blrunner.buyVolume)
+	}else{
 		panic("Cache corrupt")
 	}
-	if _, err := sellFile.Read(buf); err == nil {
-		rbuf := bytes.NewReader(buf)
-		binary.Read(rbuf, binary.LittleEndian, &blrunner.SellVolume)
-		//blrunner.SellVolume = int64(buf)
-	} else {
+	rb.reset()
+	if _,err := sFile.Read(buf);err == nil{
+		binary.Read(rb,binary.LittleEndian,&blrunner.sellVolume)
+	}else{
 		panic("Cache corrupt")
 	}
-	parse := func(data []byte) *common.BLOrder {
-		rbuf := bytes.NewReader(data)
-		order := new(common.BLOrder)
-		binary.Read(rbuf, binary.LittleEndian, &order.StkCode)
-		binary.Read(rbuf, binary.LittleEndian, &order.OrderId)
-		binary.Read(rbuf, binary.LittleEndian, &order.Direction)
-		binary.Read(rbuf, binary.LittleEndian, &order.Type)
-		binary.Read(rbuf, binary.LittleEndian, &order.Price)
-		binary.Read(rbuf, binary.LittleEndian, &order.Volume)
-		return order
-	}
-	buf = make([]byte, 28)
-	for {
-		if _, err := buyFile.Read(buf); err == nil {
-			blrunner.BuyTree.InsertOrder(parse(buf))
-		} else {
+	rb.reset()
+	buf = make([]byte,28)
+	for{
+		if _,err := bFile.Read(buf);err == nil{
+			order := new(ShortOrder)
+			binary.Read(rb,binary.LittleEndian,&order)
+			blrunner.InsertOrder(blrunner.buyTree,blrunner.queuePool,order)
+			rb.reset()
+		}else{
 			break
 		}
 	}
-	for {
-		if _, err := sellFile.Read(buf); err == nil {
-			blrunner.SellTree.InsertOrder(parse(buf))
-		} else {
+	for{
+		if _,err := sFile.Read(buf);err == nil{
+			order := new(ShortOrder)
+			binary.Read(rb,binary.LittleEndian,&order)
+			blrunner.InsertOrder(blrunner.sellTree,blrunner.queuePool,order)
+			rb.reset()
+		}else{
 			break
 		}
 	}
-	buyFile.Close()
-	sellFile.Close()
+	bFile.Close()
+	sFile.Close()
 }
 
-func (blrunner *BLRunner) Dump() {
-	buyFile, errB := os.OpenFile("./buy_cache", os.O_WRONLY, 0777)
-	sellFile, errS := os.OpenFile("./sell_cache", os.O_WRONLY, 0777)
-	if errB != nil || errS != nil {
+func (blrunner *BLRunner) Dump()
+{
+	buyFile,errB := os.OpenFile("./buy_cache",os.WRONLY,0777)
+	sellFile,errS := os.OpenFile("./sell_cache",os.WRONLY,0777)
+	if(errB != nil || errS != nil){
 		panic("Failed to write cache")
 	}
-	wbuf := new(bytes.Buffer)
-	_ = binary.Write(wbuf, binary.LittleEndian, blrunner.BuyVolume)
-	_, _ = buyFile.Write(wbuf.Bytes())
-	wbuf = new(bytes.Buffer)
-	_ = binary.Write(wbuf, binary.LittleEndian, blrunner.SellVolume)
-	_, _ = sellFile.Write(wbuf.Bytes())
-	iterator, _ := blrunner.BuyTree.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
-		u := value.head
-		for ; u != nil; u = u.next {
-			wbuf := new(bytes.Buffer)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.OrderId)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.StkCode)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Direction)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Type)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Price)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Volume)
-			_, _ = buyFile.Write(wbuf.Bytes())
+	wb := new(bytes.Buffer)
+	_ = binary.Write(wb,binary.LittleEndian,blrunner.buyVolume)
+	_,_ = bFile.Write(wb.Bytes())
+	wb.Reset()
+	_ = binary.Write(wb,binary.LittleEndian,blrunner.sellVolume)
+	_,_ = bFile.Write(wb.Bytes())
+	wb.Reset()
+	it := blrunner.buyTree.Iterator()
+	for it.Next(){
+		u := it.Value().head
+		for ;u != nil;u = u.next{
+			_ = binary.Write(wb,binary.LittleEndian,u.order)
+			_,_ := bFile.Write(wb.Bytes())
+			wb.reset()
 		}
-	})
-	iterator.All()
-	iterator, _ = blrunner.SellTree.NewRbIterator(func(iterator arbt.RbIterator, key arbt.RbKey, value interface{}) {
-		u := value.head
-		for ; u != nil; u = u.next {
-			wbuf = new(bytes.Buffer)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.StkCode)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.OrderId)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Direction)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Type)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Price)
-			_ = binary.Write(wbuf, binary.LittleEndian, u.order.Volume)
-			_, _ = sellFile.Write(wbuf.Bytes())
+	}
+	it = blrunner.sellTree.Iterator()
+	for it.Next(){
+		u := it.Value().head
+		for ;u != nil;u = u.next{
+			_ = binary.Write(wb,binary.LittleEndian,u.order)
+			_,_ := sFile.Write(wb.Bytes())
+			wb.reset()
 		}
-	})
-	iterator.All()
-	buyFile.Close()
-	sellFile.Close()
+	}
+	bFile.Close()
+	sFile.Close()
 }
-
-//load and dump 64->int
