@@ -11,6 +11,6 @@ func main() {
 	lib.Logger.SetPrefix(fmt.Sprintf("[master %s] ", lib.Config.Name))
 	lib.Logger.Println("configuration loaded")
 	lib.CheckCache()
-	prices := lib.LoadDatasetFloat64(9, 0, "price")
-	fmt.Println(prices)
+	chunk := lib.LoadOrderChunk(9, 0)
+	fmt.Println(len(chunk))
 }
