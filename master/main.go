@@ -12,4 +12,6 @@ func main() {
 	chunk := lib.LoadOrderChunk(9, 0)
 	fmt.Println(len(chunk), cap(chunk))
 	fmt.Println(chunk[0])
+	hooks := lib.LoadHooks(0)
+	fmt.Println(hooks[0])
 }

@@ -2,12 +2,16 @@ package lib
 
 import (
 	"fmt"
+	"os"
+	"path"
 
 	"github.com/thezzisu/bltrader/common"
 )
 
 type StockInfo struct {
 	StockId int32
+
+	Hooks []common.BLHook
 
 	cacheL []common.BLOrder
 	chunkL int
@@ -47,6 +51,7 @@ func CreateStockInfo(stockId int32) *StockInfo {
 		// Since we only have one chunk, just load it as cacheR
 		return &StockInfo{
 			StockId: stockId,
+			Hooks:   LoadHooks(stockId),
 			cacheL:  make([]common.BLOrder, 0),
 			chunkL:  0,
 			cacheR:  LoadOrderChunk(stockId, 0),
@@ -55,10 +60,69 @@ func CreateStockInfo(stockId int32) *StockInfo {
 	} else {
 		return &StockInfo{
 			StockId: stockId,
+			Hooks:   LoadHooks(stockId),
 			cacheL:  LoadOrderChunk(stockId, 0),
 			chunkL:  0,
 			cacheR:  LoadOrderChunk(stockId, 1),
 			chunkR:  1,
 		}
+	}
+}
+
+type IPCRequest struct {
+	Cb chan<- interface{}
+
+	// 0 - exit
+	// 1 - query
+	Method  int
+	Payload interface{}
+}
+
+type StockHandler struct {
+	StockId int32
+	info    *StockInfo
+
+	dataDir string
+
+	command chan IPCRequest
+}
+
+type StockHandlerQueryArgs struct {
+	l, r int32
+}
+
+func (sh *StockHandler) query(l, r int32) []common.BLOrder {
+	return nil
+}
+
+func (sh *StockHandler) GetCommandChan() chan<- IPCRequest {
+	return sh.command
+}
+
+func (sh *StockHandler) MainLoop() {
+	for {
+		command := <-sh.command
+		switch command.Method {
+		case 0:
+			return
+		case 1:
+			payload := command.Payload.(StockHandlerQueryArgs)
+			result := sh.query(payload.l, payload.r)
+			command.Cb <- result
+		}
+	}
+}
+
+func CreateStockHandler(stockId int32) *StockHandler {
+	dataDir := path.Join(Config.DataDir, fmt.Sprint(stockId))
+	err := os.MkdirAll(dataDir, 0700)
+	if err != nil {
+		Logger.Fatalln(err)
+	}
+	info := CreateStockInfo(stockId)
+	return &StockHandler{
+		StockId: stockId,
+		info:    info,
+		dataDir: dataDir,
 	}
 }

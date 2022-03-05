@@ -31,3 +31,14 @@ type BLTrade struct {
 func (trade BLTrade) String() string {
 	return fmt.Sprintf("Trade {\n\tstk = %d\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.StkCode, trade.BidId, trade.AskId, trade.Price, trade.Volume)
 }
+
+type BLHook struct {
+	SelfOrderId    int32
+	TargetStkCode  int32
+	TargetTradeIdx int32
+	Arg            int32
+}
+
+func (hook BLHook) String() string {
+	return fmt.Sprintf("Hook {\n\tself_order = %d\n\ttarget_stk = %d\n\ttarget_trade = %d\n\targ = %d\n}", hook.SelfOrderId, hook.TargetStkCode, hook.TargetTradeIdx, hook.Arg)
+}

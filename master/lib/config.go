@@ -10,6 +10,7 @@ import (
 type MasterConfig struct {
 	Name     string `json:"Name"`
 	CacheDir string `json:"CacheDir"`
+	DataDir  string `json:"DataDir"`
 }
 
 var Config MasterConfig

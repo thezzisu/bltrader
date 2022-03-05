@@ -116,8 +116,30 @@ func LoadOrderChunk(stock int32, chunk int) []common.BLOrder {
 	return items[:m:m]
 }
 
+func LoadHooks(stock int32) []common.BLHook {
+	f, err := os.Open(path.Join(Config.CacheDir, "stage-2", fmt.Sprintf("hook_%d.bin", stock)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	reader := bufio.NewReader(f)
+	var n uint32
+	binary.Read(reader, binary.LittleEndian, &n)
+	dataset := make([]common.BLHook, n)
+	for i := uint32(0); i < n; i++ {
+		binary.Read(reader, binary.LittleEndian, &dataset[i].SelfOrderId)
+		binary.Read(reader, binary.LittleEndian, &dataset[i].TargetStkCode)
+		binary.Read(reader, binary.LittleEndian, &dataset[i].TargetTradeIdx)
+		binary.Read(reader, binary.LittleEndian, &dataset[i].Arg)
+	}
+	return dataset
+}
+
 func CheckCache() {
 	_, err := os.Stat(path.Join(Config.CacheDir, "stage-1", ".lock"))
+	if err != nil {
+		Logger.Fatalln(err)
+	}
+	_, err = os.Stat(path.Join(Config.CacheDir, "stage-2", ".lock"))
 	if err != nil {
 		Logger.Fatalln(err)
 	}
