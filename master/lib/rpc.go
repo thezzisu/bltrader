@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/thezzisu/bltrader/common"
+	"github.com/thezzisu/bltrader/compress"
 	"github.com/thezzisu/bltrader/smux"
 )
 
@@ -23,7 +24,7 @@ type RPCEndpoint struct {
 	hub *Hub
 
 	listener *net.TCPListener
-	conn     *net.TCPConn
+	conn     net.Conn
 	sess     *smux.Session
 
 	die     chan struct{}
@@ -76,6 +77,9 @@ func (e *RPCEndpoint) MainLoop() {
 		if err != nil {
 			Logger.Println("RPCEndpoint.MainLoop:AcceptTCP", err)
 			continue
+		}
+		if Config.Compress {
+			e.conn = compress.NewCompStream(e.conn)
 		}
 		Logger.Printf("Endpoint accepted connection from %s", e.conn.RemoteAddr().String())
 		e.sess, err = smux.Server(e.conn, smuxConfig)

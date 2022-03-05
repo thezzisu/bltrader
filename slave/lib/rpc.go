@@ -1,17 +1,19 @@
 package lib
 
 import (
+	"encoding/binary"
 	"io"
 	"math/rand"
 	"net"
 	"sync"
 
 	"github.com/thezzisu/bltrader/common"
+	"github.com/thezzisu/bltrader/compress"
 	"github.com/thezzisu/bltrader/smux"
 )
 
 type RPCEndpoint struct {
-	conn *net.TCPConn
+	conn net.Conn
 	sess *smux.Session
 
 	die     chan struct{}
@@ -58,6 +60,9 @@ func (e *RPCEndpoint) MainLoop() {
 		if err != nil {
 			Logger.Println(err)
 			return
+		}
+		if Config.Compress {
+			e.conn = compress.NewCompStream(e.conn)
 		}
 		e.sess, err = smux.Client(e.conn, nil)
 		if err != nil {
@@ -165,6 +170,41 @@ func (r *RPC) Dial() (io.ReadWriteCloser, error) {
 	}
 	endpoint := r.endpoints[rand.Intn(n)]
 	return endpoint.Dial()
+}
+
+func (r *RPC) RpcEcho(msg string) (string, error) {
+	conn, err := r.Dial()
+	if err != nil {
+		return "", err
+	}
+
+	header := make([]byte, 5)
+	binary.LittleEndian.PutUint32(header, Config.Magic)
+	header[4] = common.RPC_ECHO
+
+	conn.Write(header)
+
+	body := []byte(msg)
+	length := make([]byte, 4)
+	binary.LittleEndian.PutUint32(length, uint32(len(body)))
+
+	conn.Write(length)
+	conn.Write(body)
+
+	io.ReadFull(conn, header)
+	if err != nil {
+		return "", err
+	}
+
+	if header[4] != common.RPC_STATUS_OK {
+		return "", common.ErrRPC
+	}
+
+	io.ReadFull(conn, length)
+	buf := make([]byte, binary.LittleEndian.Uint32(length))
+	io.ReadFull(conn, buf)
+
+	return string(buf), nil
 }
 
 func CreateRPC() *RPC {

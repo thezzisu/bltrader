@@ -13,6 +13,7 @@ type MasterConfig struct {
 	DataDir  string `json:"DataDir"`
 	Listen   string `json:"Listen"`
 	Magic    uint32 `json:"Magic"`
+	Compress bool   `json:"Compress"`
 }
 
 var Config MasterConfig

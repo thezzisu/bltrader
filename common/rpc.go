@@ -2,11 +2,26 @@ package common
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"path"
 
 	"github.com/fsnotify/fsnotify"
+)
+
+const (
+	RPC_STATUS_OK         = 0
+	RPC_STATUS_ERROR      = 1
+	RPC_STATUS_RICH_ERROR = 2
+)
+
+const (
+	RPC_ECHO = 0
+)
+
+var (
+	ErrRPC = errors.New("RPC Error")
 )
 
 type RPCPair struct {

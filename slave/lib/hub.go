@@ -9,12 +9,8 @@ type Hub struct {
 func (h *Hub) MainLoop() {
 	go h.rpc.MainLoop()
 	time.Sleep(time.Second)
-	conn, err := h.rpc.Dial()
-	if err != nil {
-		Logger.Fatalln(err)
-	}
-	conn.Write([]byte("Hello!"))
-	conn.Close()
+	msg, _ := h.rpc.RpcEcho("fuck ccf")
+	println(msg)
 }
 
 func CreateHub() *Hub {

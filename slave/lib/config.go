@@ -8,9 +8,10 @@ import (
 )
 
 type SlaveConfig struct {
-	Name    string `json:"Name"`
-	DataDir string `json:"DataDir"`
-	Magic   uint32 `json:"Magic"`
+	Name     string `json:"Name"`
+	DataDir  string `json:"DataDir"`
+	Magic    uint32 `json:"Magic"`
+	Compress bool   `json:"Compress"`
 }
 
 var Config SlaveConfig
