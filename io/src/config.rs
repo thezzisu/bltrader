@@ -11,6 +11,7 @@ pub struct IOConfig {
     pub type_file: String,
     pub direction_file: String,
     pub cache_dir: String,
+    pub chunk_size: usize,
 }
 
 pub fn load_config() -> Result<IOConfig, Box<dyn std::error::Error>> {
