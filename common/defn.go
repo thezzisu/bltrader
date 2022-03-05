@@ -22,6 +22,7 @@ func (order BLOrder) String() string {
 
 type BLTrade struct {
 	StkCode int32
+	TradeId int32 // **starting from 1** for each stock
 	BidId   int32 //买方
 	AskId   int32 //卖方
 	Price   float64
@@ -29,7 +30,7 @@ type BLTrade struct {
 }
 
 func (trade BLTrade) String() string {
-	return fmt.Sprintf("Trade {\n\tstk = %d\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.StkCode, trade.BidId, trade.AskId, trade.Price, trade.Volume)
+	return fmt.Sprintf("Trade {\n\tstk = %d\n\ttxn = %d\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.StkCode, trade.TradeId, trade.BidId, trade.AskId, trade.Price, trade.Volume)
 }
 
 type BLHook struct {

@@ -38,9 +38,13 @@ pub fn prepare_stage2(config: &IOConfig) {
             );
             writer.write_all(&len.to_le_bytes()).unwrap();
             for hook in hooks {
+                // self_order_id
                 writer.write_all(&hook.0.to_le_bytes()).unwrap();
-                writer.write_all(&hook.1.to_le_bytes()).unwrap();
+                // target_stk_code
+                writer.write_all(&(hook.1 - 1).to_le_bytes()).unwrap();
+                // target_trade_idx
                 writer.write_all(&hook.2.to_le_bytes()).unwrap();
+                // arg
                 writer.write_all(&hook.3.to_le_bytes()).unwrap();
             }
         }

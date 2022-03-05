@@ -69,22 +69,19 @@ func CreateStockInfo(stockId int32) *StockInfo {
 	}
 }
 
-type IPCRequest struct {
-	Cb chan<- interface{}
-
-	// 0 - exit
-	// 1 - query
-	Method  int
-	Payload interface{}
-}
-
 type StockHandler struct {
 	StockId int32
-	info    *StockInfo
+	Info    *StockInfo
 
 	dataDir string
 
 	command chan IPCRequest
+
+	interested map[int32]struct{}
+}
+
+func (sh *StockHandler) Interest(tradeId int32) {
+	sh.interested[tradeId] = struct{}{}
 }
 
 type StockHandlerQueryArgs struct {
@@ -99,16 +96,24 @@ func (sh *StockHandler) GetCommandChan() chan<- IPCRequest {
 	return sh.command
 }
 
+func (sh *StockHandler) Close() {
+	sh.command <- IPCRequest{
+		Method: IPC_EXIT,
+	}
+}
+
 func (sh *StockHandler) MainLoop() {
 	for {
 		command := <-sh.command
 		switch command.Method {
-		case 0:
+		case IPC_EXIT:
 			return
-		case 1:
+		case IPC_STOCK_QUERY:
 			payload := command.Payload.(StockHandlerQueryArgs)
 			result := sh.query(payload.l, payload.r)
 			command.Cb <- result
+		default:
+			Logger.Fatalln("StockHandler.MainLoop: unknown command")
 		}
 	}
 }
@@ -119,10 +124,13 @@ func CreateStockHandler(stockId int32) *StockHandler {
 	if err != nil {
 		Logger.Fatalln(err)
 	}
-	info := CreateStockInfo(stockId)
-	return &StockHandler{
-		StockId: stockId,
-		info:    info,
-		dataDir: dataDir,
-	}
+
+	sh := new(StockHandler)
+	sh.StockId = stockId
+	sh.Info = CreateStockInfo(stockId)
+	sh.dataDir = dataDir
+	sh.command = make(chan IPCRequest)
+	sh.interested = make(map[int32]struct{})
+
+	return sh
 }
