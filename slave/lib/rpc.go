@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"io"
 	"net"
 	"sync"
 
@@ -9,15 +10,12 @@ import (
 )
 
 type RPCEndpoint struct {
-	rpc *RPC
-	hub *Hub
-
-	listener *net.TCPListener
-	conn     *net.TCPConn
-	sess     *smux.Session
+	conn *net.TCPConn
+	sess *smux.Session
 
 	die     chan struct{}
 	dieOnce sync.Once
+	err     chan struct{}
 
 	Pair common.RPCPair
 }
@@ -29,9 +27,6 @@ func (e *RPCEndpoint) Close() {
 		}
 		if e.conn != nil {
 			e.conn.Close()
-		}
-		if e.listener != nil {
-			e.listener.Close()
 		}
 		close(e.die)
 	})
@@ -47,64 +42,56 @@ func (e *RPCEndpoint) IsClosed() bool {
 }
 
 func (e *RPCEndpoint) MainLoop() {
-	addr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
+	laddr, err := net.ResolveTCPAddr("tcp", e.Pair.SlaveAddr)
 	if err != nil {
 		Logger.Println(err)
 		return
 	}
-	e.listener, err = net.ListenTCP("tcp", addr)
+	raddr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
 	if err != nil {
 		Logger.Println(err)
 		return
 	}
-	defer e.listener.Close()
-
-	Logger.Printf("Endpoint listening on %s", e.Pair.MasterAddr)
-
 	for !e.IsClosed() {
-		e.conn, err = e.listener.AcceptTCP()
+		e.conn, err = net.DialTCP("tcp", laddr, raddr)
 		if err != nil {
 			Logger.Println(err)
-			continue
+			return
 		}
-		Logger.Printf("Endpoint accepted connection from %s", e.conn.RemoteAddr().String())
-		e.sess, err = smux.Server(e.conn, nil)
+		e.sess, err = smux.Client(e.conn, nil)
 		if err != nil {
 			Logger.Println(err)
-			continue
+			return
 		}
-		for !e.sess.IsClosed() {
-			stream, err := e.sess.AcceptStream()
-			if err != nil {
-				Logger.Println(err)
-				continue
-			}
-			go e.hub.HandleConn(stream)
+		select {
+		case <-e.err:
+		case <-e.die:
 		}
-		e.conn.Close()
 	}
 }
 
-func createRPCEndpoint(rpc *RPC, pair common.RPCPair) *RPCEndpoint {
+func (e *RPCEndpoint) Dial() (io.ReadWriteCloser, error) {
+	stream, err := e.sess.Open()
+	if err != nil {
+		e.err <- struct{}{}
+		return nil, err
+	}
+	return stream, nil
+}
+
+func createRPCEndpoint(r *RPC, pair common.RPCPair) *RPCEndpoint {
 	e := new(RPCEndpoint)
-	e.rpc = rpc
-	e.hub = rpc.hub
-
-	e.Pair = pair
-
 	e.die = make(chan struct{})
-
+	e.err = make(chan struct{})
+	e.Pair = pair
 	return e
 }
 
 type RPC struct {
-	hub         *Hub
 	pairManager *common.RPCPairManager
-
-	endpoints []*RPCEndpoint
-
-	die     chan struct{}
-	dieOnce sync.Once
+	endpoints   []*RPCEndpoint
+	die         chan struct{}
+	dieOnce     sync.Once
 }
 
 func (r *RPC) Reload() {
@@ -170,9 +157,8 @@ func (r *RPC) MainLoop() {
 	}
 }
 
-func CreateRPC(hub *Hub) *RPC {
+func CreateRPC() *RPC {
 	rpc := new(RPC)
-	rpc.hub = hub
 	rpc.pairManager = common.CreateRPCPairManager()
 	rpc.endpoints = make([]*RPCEndpoint, 0)
 	rpc.die = make(chan struct{})
