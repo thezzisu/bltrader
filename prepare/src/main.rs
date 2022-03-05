@@ -1,5 +1,5 @@
-use bltrader_io::config::load_config;
-use bltrader_io::prepare::prepare;
+use bltrader_prepare::config::load_config;
+use bltrader_prepare::prepare::prepare;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config()?;
