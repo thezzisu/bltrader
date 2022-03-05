@@ -64,17 +64,40 @@ fn reorder_matrix_i32(
     ids
 }
 
-fn reorder_matrix_f64(
-    config: &IOConfig,
-    filename: &str,
-    dataset: &'static str,
-    cache_root: &Path,
-    ids: Vec<StockIds>,
-) -> Vec<StockIds> {
-    println!("[io] [stage-1] reorder {}", dataset);
-    let (_, mat) = read_hdf5::<f64>(filename, dataset);
+fn save_last_prev(cache_root: &Path, last_prev: Vec<f64>) {
+    println!("[io] [stage-1] saving last prev");
+    let cache_file = cache_root.join("last_prev.bin");
+    let mut writer = BufWriter::new(
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(cache_file)
+            .unwrap(),
+    );
+    writer
+        .write_all(&(last_prev.len() as u32).to_le_bytes())
+        .unwrap();
+    for item in last_prev {
+        writer.write_all(&item.to_le_bytes()).unwrap();
+    }
+    println!("[io] [stage-1] last prev saved");
+}
+
+fn process_prices(config: &IOConfig, cache_root: &Path, ids: Vec<StockIds>) -> Vec<StockIds> {
+    println!("[io] parsing hdf5 {}", config.price_file);
+    let file = hdf5::File::open(&config.price_file).unwrap();
+    let raw_last_prev = file
+        .dataset("prev_close")
+        .unwrap()
+        .read_raw::<f64>()
+        .unwrap();
+    save_last_prev(cache_root, raw_last_prev);
+
+    let raw_prices = file.dataset("price").unwrap().read_raw::<f64>().unwrap();
+    println!("[io] [stage-1] prices loaded");
+
     let chunk_size = config.chunk_size;
-    let arc = Arc::new(mat);
+    let arc = Arc::new(raw_prices);
 
     let mut threads: Vec<JoinHandle<StockIds>> = vec![];
 
@@ -91,7 +114,7 @@ fn reorder_matrix_f64(
                 reordered.push(mat_ref[*offset as usize]);
             }
             for (chunk_id, chunk) in reordered.chunks(chunk_size).enumerate() {
-                let cache_file = cache_root.join(format!("{}.{}.bin", dataset, chunk_id));
+                let cache_file = cache_root.join(format!("price.{}.bin", chunk_id));
                 let mut writer = BufWriter::new(
                     fs::OpenOptions::new()
                         .write(true)
@@ -161,7 +184,7 @@ pub fn prepare_stage1(config: &IOConfig) {
     if !cache_lock.exists() {
         println!("[io] [stage-1] Preparing stage 1");
         let ids = prepare_stage0(config);
-        let ids = reorder_matrix_f64(config, &config.price_file, "price", &cache_root, ids);
+        let ids = process_prices(config, &cache_root, ids);
         let ids = reorder_matrix_i32(config, &config.volume_file, "volume", &cache_root, ids);
         let ids = reorder_matrix_i32(config, &config.type_file, "type", &cache_root, ids);
         let ids = reorder_matrix_i32(
