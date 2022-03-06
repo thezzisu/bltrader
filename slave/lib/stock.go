@@ -3,6 +3,8 @@ package lib
 import (
 	"encoding/binary"
 	"net"
+
+	"github.com/thezzisu/bltrader/common"
 )
 
 // TODO implement Close()
@@ -41,14 +43,13 @@ func (sh *StockHandler) SendLoop(name string) {
 				default:
 				}
 				// TODO
-				// order := sh.info.cacheL[0]
-				// err := binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
-				// 	OrderId:   order.OrderId,
-				// 	Direction: order.Direction,
-				// 	Type:      order.Type,
-				// 	Price:     order.Price,
-				// 	Volume:    order.Volume,
-				// })
+				dto := common.BLTradeDTO{
+					BidId:  1,
+					AskId:  2,
+					Price:  3,
+					Volume: 4,
+				}
+				err = binary.Write(conn, binary.LittleEndian, dto)
 				if err != nil {
 					break connLoop
 				}

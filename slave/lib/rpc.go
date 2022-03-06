@@ -97,8 +97,6 @@ func (e *RPCEndpoint) DialLoop() {
 		conn, err := net.DialTCP("tcp", laddr, raddr)
 		if err != nil {
 			Logger.Println("RPCEndpoint.DialLoop", err)
-
-			Logger.Println(e.rpc.endpoints)
 			time.Sleep(time.Second / 2)
 			continue
 		}
@@ -132,6 +130,7 @@ func (e *RPCEndpoint) DialLoop() {
 				acceptCh <- stream
 			}
 		}()
+
 	sessLoop:
 		for {
 			select {
@@ -257,11 +256,19 @@ func (r *RPC) Start() {
 	go r.MainLoop()
 }
 
-func (r *RPC) Dial() (net.Conn, error) {
+func (r *RPC) Dial(stock int32) (net.Conn, error) {
 	n := len(r.endpoints)
 	if n == 0 {
 		return nil, common.ErrNoEndpoint
 	}
 	endpoint := r.endpoints[rand.Intn(n)]
-	return endpoint.Dial()
+	conn, err := endpoint.Dial()
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Write(conn, binary.LittleEndian, stock)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }

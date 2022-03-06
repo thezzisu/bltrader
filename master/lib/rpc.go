@@ -33,7 +33,6 @@ type RPCEndpoint struct {
 
 	Pair common.RPCPair
 
-	incomingConn chan net.Conn
 	outgoingConn chan net.Conn
 	dialRequest  chan struct{}
 }
@@ -44,7 +43,6 @@ func createRPCEndpoint(rpc *RPC, pair common.RPCPair) *RPCEndpoint {
 	e.hub = rpc.hub
 	e.Pair = pair
 	e.die = make(chan struct{})
-	e.incomingConn = make(chan net.Conn)
 	e.outgoingConn = make(chan net.Conn)
 	e.dialRequest = make(chan struct{})
 
@@ -71,6 +69,7 @@ func (e *RPCEndpoint) handleConn(conn net.Conn) {
 	err := binary.Read(conn, binary.LittleEndian, &stockId)
 	if err != nil {
 		conn.Close()
+		return
 	}
 	e.hub.stocks[stockId].Handle(conn)
 }
@@ -81,16 +80,47 @@ func (e *RPCEndpoint) Dial() (net.Conn, error) {
 }
 
 func (e *RPCEndpoint) AcceptLoop() {
-	for !e.IsClosed() {
-		conn := <-e.incomingConn
+	addr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
+	if err != nil {
+		Logger.Println("RPCEndpoint.AcceptLoop", err)
+		return
+	}
 
-	connLoop:
+	for !e.IsClosed() {
+		listener, err := net.ListenTCP("tcp", addr)
+		if err != nil {
+			Logger.Println("RPCEndpoint.AcceptLoop", err)
+			time.Sleep(time.Second / 2)
+			continue
+		}
+
+		Logger.Printf("Endpoint listening on %s", e.Pair.MasterAddr)
 		for !e.IsClosed() {
-			sess, err := smux.Server(conn, smuxConfig)
+			var conn net.Conn
+			conn, err = listener.AcceptTCP()
 			if err != nil {
+				Logger.Println("RPCEndpoint.AcceptLoop", err)
 				break
 			}
-			Logger.Printf("RPCEndpoint.DialLoop: %s connected\n", e.Pair.SlaveAddr)
+
+			var magic uint32
+			err = binary.Read(conn, binary.LittleEndian, &magic)
+			if err != nil || magic != Config.Magic {
+				conn.Close()
+				continue
+			}
+			Logger.Printf("RPCEndpoint.AcceptLoop connection from %s", conn.RemoteAddr().String())
+			if Config.Compress {
+				conn = compress.NewCompStream(conn)
+			}
+
+			sess, err := smux.Server(conn, smuxConfig)
+			if err != nil {
+				Logger.Println("RPCEndpoint.AcceptLoop", err)
+				conn.Close()
+				break
+			}
+
 			acceptCh := make(chan net.Conn)
 			dieCh := make(chan struct{})
 			go func() {
@@ -104,79 +134,35 @@ func (e *RPCEndpoint) AcceptLoop() {
 				}
 			}()
 
+		sessLoop:
 			for {
 				select {
-				case newConn := <-e.incomingConn:
-					sess.Close()
-					close(acceptCh)
-					// dieCh will be closed by the goroutine above
-					conn.Close()
-					conn = newConn
-					continue connLoop
-
 				case <-e.dialRequest:
 					stream, err := sess.OpenStream()
 					if err != nil {
 						common.TryClose(dieCh)
 						break
 					}
-					Logger.Println("RPCEndpoint.DialLoop: stream opened")
+					Logger.Println("RPCEndpoint.AcceptLoop: stream opened")
 					e.outgoingConn <- stream
 
 				case <-e.die:
 					common.TryClose(dieCh)
 
 				case stream := <-acceptCh:
-					Logger.Println("RPCEndpoint.DialLoop: stream accepted")
+					Logger.Println("RPCEndpoint.AcceptLoop: stream accepted")
 					go e.handleConn(stream)
 
 				case <-dieCh:
-					Logger.Printf("RPCEndpoint.DialLoop: connection from %s closed\n", e.Pair.SlaveAddr)
+					Logger.Printf("RPCEndpoint.AcceptLoop: connection from %s closed\n", e.Pair.SlaveAddr)
 					sess.Close()
 					close(acceptCh)
 					// dieCh is already closed
-					break connLoop
+					break sessLoop
 				}
 			}
-		}
-		conn.Close()
-	}
-}
 
-func (e *RPCEndpoint) ListenLoop() {
-	addr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
-	if err != nil {
-		Logger.Println("RPCEndpoint.MainLoop:ResolveTCPAddr", err)
-		return
-	}
-	for !e.IsClosed() {
-		listener, err := net.ListenTCP("tcp", addr)
-		if err != nil {
-			Logger.Println("RPCEndpoint.MainLoop:ListenTCP", err)
-			time.Sleep(time.Second / 2)
-			continue
-		}
-
-		Logger.Printf("Endpoint listening on %s", e.Pair.MasterAddr)
-
-		for !e.IsClosed() {
-			conn, err := listener.AcceptTCP()
-			if err != nil {
-				Logger.Println("RPCEndpoint.MainLoop:AcceptTCP", err)
-				continue
-			}
-			var magic uint32
-			err = binary.Read(conn, binary.LittleEndian, &magic)
-			if err != nil || magic != Config.Magic {
-				conn.Close()
-				continue
-			}
-			Logger.Printf("Endpoint accepted connection from %s", conn.RemoteAddr().String())
-			if Config.Compress {
-				e.incomingConn <- compress.NewCompStream(conn)
-			} else {
-				e.incomingConn <- conn
-			}
+			conn.Close()
 		}
 
 		listener.Close()
@@ -185,7 +171,6 @@ func (e *RPCEndpoint) ListenLoop() {
 
 func (e *RPCEndpoint) Start() {
 	go e.AcceptLoop()
-	go e.ListenLoop()
 }
 
 type RPC struct {
@@ -279,11 +264,19 @@ func (r *RPC) Start() {
 	go r.MainLoop()
 }
 
-func (r *RPC) Dial() (net.Conn, error) {
+func (r *RPC) Dial(stock int32) (net.Conn, error) {
 	n := len(r.endpoints)
 	if n == 0 {
 		return nil, common.ErrNoEndpoint
 	}
 	endpoint := r.endpoints[rand.Intn(n)]
-	return endpoint.Dial()
+	conn, err := endpoint.Dial()
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Write(conn, binary.LittleEndian, stock)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }

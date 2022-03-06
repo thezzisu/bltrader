@@ -194,13 +194,12 @@ func (sh *StockHandler) RecvLoop() {
 	lastTradeId := int32(0)
 fetchLoop:
 	for {
-		conn, err := sh.rpc.Dial()
+		conn, err := sh.rpc.Dial(sh.StockId)
 		if err != nil {
 			continue
 		}
-		Logger.Printf("StockHandler[%d].RecvLoop new connection\n", sh.StockId)
-		// Send header
-		binary.Write(conn, binary.LittleEndian, sh.StockId)
+		Logger.Printf("StockHandler[%d].RecvLoop new recv stream\n", sh.StockId)
+		// Send ETag
 		binary.Write(conn, binary.LittleEndian, lastTradeId)
 
 		for {
@@ -210,6 +209,7 @@ fetchLoop:
 				break
 			}
 			lastTradeId++
+			Logger.Printf("Trade: %d -> %v\n", lastTradeId, dto)
 			if _, ok := sh.interested[lastTradeId]; ok {
 				// Trade is interested
 				cbs := sh.interested[lastTradeId]
