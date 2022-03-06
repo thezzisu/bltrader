@@ -206,6 +206,7 @@ fetchLoop:
 			var dto common.BLTradeDTO
 			err := binary.Read(conn, binary.LittleEndian, &dto)
 			if err != nil {
+				Logger.Printf("StockHandler[%d].RecvLoop %v\n", sh.StockId, err)
 				break
 			}
 			lastTradeId++

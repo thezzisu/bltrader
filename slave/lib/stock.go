@@ -3,6 +3,7 @@ package lib
 import (
 	"encoding/binary"
 	"net"
+	"time"
 
 	"github.com/thezzisu/bltrader/common"
 )
@@ -50,6 +51,7 @@ func (sh *StockHandler) SendLoop(name string) {
 					Volume: 4,
 				}
 				err = binary.Write(conn, binary.LittleEndian, dto)
+				time.Sleep(time.Second)
 				if err != nil {
 					break connLoop
 				}
