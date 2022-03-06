@@ -92,49 +92,53 @@ func (e *RPCEndpoint) AcceptLoop() {
 			}
 			Logger.Printf("RPCEndpoint.DialLoop: %s connected\n", e.Pair.SlaveAddr)
 			acceptCh := make(chan net.Conn)
+			dieCh := make(chan struct{})
 			go func() {
 				for {
 					stream, err := sess.AcceptStream()
-					Logger.Println("RPCEndpoint.DialLoop.inner: stream accepted")
 					if err != nil {
-						sess.Close()
-						break
+						common.TryClose(dieCh)
+						return
 					}
 					acceptCh <- stream
 				}
 			}()
-		sessLoop:
+
 			for {
 				select {
 				case newConn := <-e.incomingConn:
+					sess.Close()
+					close(acceptCh)
+					// dieCh will be closed by the goroutine above
 					conn.Close()
 					conn = newConn
-					break sessLoop
+					continue connLoop
 
 				case <-e.dialRequest:
 					stream, err := sess.OpenStream()
 					if err != nil {
-						sess.Close()
-						close(acceptCh)
-						break connLoop
+						common.TryClose(dieCh)
+						break
 					}
 					Logger.Println("RPCEndpoint.DialLoop: stream opened")
 					e.outgoingConn <- stream
 
 				case <-e.die:
-					sess.Close()
-					break connLoop
+					common.TryClose(dieCh)
 
 				case stream := <-acceptCh:
 					Logger.Println("RPCEndpoint.DialLoop: stream accepted")
 					go e.handleConn(stream)
+
+				case <-dieCh:
+					Logger.Printf("RPCEndpoint.DialLoop: connection from %s closed\n", e.Pair.SlaveAddr)
+					sess.Close()
+					close(acceptCh)
+					// dieCh is already closed
+					break connLoop
 				}
 			}
-
-			sess.Close()
-			close(acceptCh)
 		}
-
 		conn.Close()
 	}
 }
@@ -145,33 +149,37 @@ func (e *RPCEndpoint) ListenLoop() {
 		Logger.Println("RPCEndpoint.MainLoop:ResolveTCPAddr", err)
 		return
 	}
-	listener, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		Logger.Println("RPCEndpoint.MainLoop:ListenTCP", err)
-		return
-	}
-	defer listener.Close()
-
-	Logger.Printf("Endpoint listening on %s", e.Pair.MasterAddr)
-
 	for !e.IsClosed() {
-		conn, err := listener.AcceptTCP()
+		listener, err := net.ListenTCP("tcp", addr)
 		if err != nil {
-			Logger.Println("RPCEndpoint.MainLoop:AcceptTCP", err)
+			Logger.Println("RPCEndpoint.MainLoop:ListenTCP", err)
+			time.Sleep(time.Second / 2)
 			continue
 		}
-		var magic uint32
-		err = binary.Read(conn, binary.LittleEndian, &magic)
-		if err != nil || magic != Config.Magic {
-			conn.Close()
-			continue
+
+		Logger.Printf("Endpoint listening on %s", e.Pair.MasterAddr)
+
+		for !e.IsClosed() {
+			conn, err := listener.AcceptTCP()
+			if err != nil {
+				Logger.Println("RPCEndpoint.MainLoop:AcceptTCP", err)
+				continue
+			}
+			var magic uint32
+			err = binary.Read(conn, binary.LittleEndian, &magic)
+			if err != nil || magic != Config.Magic {
+				conn.Close()
+				continue
+			}
+			Logger.Printf("Endpoint accepted connection from %s", conn.RemoteAddr().String())
+			if Config.Compress {
+				e.incomingConn <- compress.NewCompStream(conn)
+			} else {
+				e.incomingConn <- conn
+			}
 		}
-		Logger.Printf("Endpoint accepted connection from %s", conn.RemoteAddr().String())
-		if Config.Compress {
-			e.incomingConn <- compress.NewCompStream(conn)
-		} else {
-			e.incomingConn <- conn
-		}
+
+		listener.Close()
 	}
 }
 

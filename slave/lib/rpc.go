@@ -83,12 +83,12 @@ func (e *RPCEndpoint) Dial() (net.Conn, error) {
 func (e *RPCEndpoint) DialLoop() {
 	laddr, err := net.ResolveTCPAddr("tcp", e.Pair.SlaveAddr)
 	if err != nil {
-		Logger.Println(err)
+		Logger.Println("RPCEndpoint.DialLoop", err)
 		return
 	}
 	raddr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
 	if err != nil {
-		Logger.Println(err)
+		Logger.Println("RPCEndpoint.DialLoop", err)
 		return
 	}
 
@@ -96,13 +96,17 @@ func (e *RPCEndpoint) DialLoop() {
 		var conn net.Conn
 		conn, err := net.DialTCP("tcp", laddr, raddr)
 		if err != nil {
-			Logger.Println(err)
+			Logger.Println("RPCEndpoint.DialLoop", err)
+
+			Logger.Println(e.rpc.endpoints)
+			time.Sleep(time.Second / 2)
 			continue
 		}
 		err = binary.Write(conn, binary.LittleEndian, Config.Magic)
 		if err != nil {
-			Logger.Println(err)
+			Logger.Println("RPCEndpoint.DialLoop", err)
 			conn.Close()
+			time.Sleep(time.Second / 2)
 			continue
 		}
 		if Config.Compress {
@@ -110,18 +114,20 @@ func (e *RPCEndpoint) DialLoop() {
 		}
 		sess, err := smux.Client(conn, smuxConfig)
 		if err != nil {
-			Logger.Println(err)
+			Logger.Println("RPCEndpoint.DialLoop", err)
 			conn.Close()
+			time.Sleep(time.Second / 2)
 			continue
 		}
 		Logger.Printf("RPCEndpoint.DialLoop: connected to %s\n", e.Pair.MasterAddr)
 		acceptCh := make(chan net.Conn)
+		dieCh := make(chan struct{})
 		go func() {
 			for {
 				stream, err := sess.AcceptStream()
 				if err != nil {
-					sess.Close()
-					break
+					common.TryClose(dieCh)
+					return
 				}
 				acceptCh <- stream
 			}
@@ -132,19 +138,26 @@ func (e *RPCEndpoint) DialLoop() {
 			case <-e.dialRequest:
 				stream, err := sess.OpenStream()
 				if err != nil {
-					break sessLoop
+					common.TryClose(dieCh)
+					break
 				}
 				Logger.Println("RPCEndpoint.DialLoop: stream opened")
 				e.outgoingConn <- stream
+
 			case <-e.die:
-				break sessLoop
+				common.TryClose(dieCh)
+
 			case stream := <-acceptCh:
 				Logger.Println("RPCEndpoint.DialLoop: stream accepted")
 				go e.handleConn(stream)
+
+			case <-dieCh:
+				Logger.Printf("RPCEndpoint.DialLoop: connection to %s closed\n", e.Pair.MasterAddr)
+				sess.Close()
+				close(acceptCh)
+				break sessLoop
 			}
 		}
-		sess.Close()
-		close(acceptCh)
 		conn.Close()
 	}
 }

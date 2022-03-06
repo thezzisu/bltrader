@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"os"
-	"path"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -51,13 +50,7 @@ func (m *RPCPairManager) Close() {
 }
 
 func (m *RPCPairManager) reload() {
-	configPath, err := os.UserConfigDir()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	configPath = path.Join(configPath, "bltrader", "rpc.json")
-	configContent, err := os.ReadFile(configPath)
+	configContent, err := os.ReadFile(m.file)
 	if err != nil {
 		log.Println(err)
 		return
