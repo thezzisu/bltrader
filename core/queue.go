@@ -6,7 +6,6 @@ import (
 
 type LinkNode struct {
 	next  *LinkNode
-	prev  *LinkNode
 	order ShortOrder
 }
 
@@ -16,7 +15,7 @@ type Queue struct {
 }
 
 func (queue *Queue) Push(p *sync.Pool, order *ShortOrder) {
-	v := p.Get()
+	v := p.Get().(*LinkNode)
 	v.order.OrderId = order.OrderId
 	v.order.Price = order.Price
 	v.order.Volume = order.Volume
@@ -24,7 +23,6 @@ func (queue *Queue) Push(p *sync.Pool, order *ShortOrder) {
 		queue.head, queue.tail = v, v
 	} else {
 		queue.tail.next = v
-		v.prev = queue.tail
 		queue.tail = v
 	}
 }
@@ -36,6 +34,7 @@ func (queue *Queue) Free(p *sync.Pool) {
 	if queue.head == queue.tail {
 		p.Put(queue.head)
 		queue.head, queue.tail = nil, nil
+		return
 	}
 	hn := queue.head.next
 	p.Put(queue.head)
