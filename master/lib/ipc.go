@@ -10,8 +10,6 @@ type IPCRequest struct {
 }
 
 const (
-	IPC_EXIT        = 0
-	IPC_LOG         = 1
-	IPC_STOCK_QUERY = 12
-	IPC_STOCK_STORE = 13
+	IPC_EXIT = 0
+	IPC_LOG  = 1
 )

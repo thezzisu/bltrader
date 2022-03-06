@@ -112,13 +112,10 @@ func CreateHub() *Hub {
 	hub := new(Hub)
 	hub.stocks = make([]*StockHandler, 0)
 	for i := 0; i < 10; i++ {
-		hub.stocks = append(hub.stocks, CreateStockHandler(int32(i)))
+		hub.stocks = append(hub.stocks, CreateStockHandler(hub, int32(i)))
 	}
-
-	for i := 0; i < 10; i++ {
-		for _, hook := range hub.stocks[i].Info.Hooks {
-			hub.stocks[hook.TargetStkCode].Interest(hook.TargetTradeIdx)
-		}
+	for _, stock := range hub.stocks {
+		stock.InitDeps()
 	}
 
 	hub.command = make(chan *IPCRequest)
