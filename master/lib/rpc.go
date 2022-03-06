@@ -2,8 +2,11 @@ package lib
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"net"
+	"os"
+	"path"
 	"sync"
 	"time"
 
@@ -168,11 +171,25 @@ func (e *RPCEndpoint) Start() {
 type RPC struct {
 	hub         *Hub
 	pairManager *common.RPCPairManager
+	endpoints   []*RPCEndpoint
 
-	endpoints []*RPCEndpoint
+	Slave string
 
 	die     chan struct{}
 	dieOnce sync.Once
+}
+
+func CreateRPC(hub *Hub, slave string) *RPC {
+	configPath, _ := os.UserConfigDir()
+	configPath = path.Join(configPath, "bltrader", fmt.Sprintf("rpc.%s.%s.json", Config.Name, slave))
+
+	rpc := new(RPC)
+	rpc.hub = hub
+	rpc.pairManager = common.CreateRPCPairManager(configPath)
+	rpc.Slave = slave
+	rpc.endpoints = make([]*RPCEndpoint, 0)
+	rpc.die = make(chan struct{})
+	return rpc
 }
 
 func (r *RPC) Reload() {
@@ -182,7 +199,7 @@ func (r *RPC) Reload() {
 	m := len(pairs)
 	if n > m {
 		for i := len(pairs); i < len(r.endpoints); i++ {
-			Logger.Printf("RPC.Reload: closing endpoint %s <-> %s", r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
+			Logger.Printf("RPC[%s].Reload: closing endpoint %s <-> %s", r.Slave, r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
 			r.endpoints[i].Close()
 		}
 		r.endpoints = r.endpoints[:m]
@@ -190,18 +207,18 @@ func (r *RPC) Reload() {
 	}
 	for i := 0; i < n; i++ {
 		if pairs[i].MasterAddr != r.endpoints[i].Pair.MasterAddr || pairs[i].SlaveAddr != r.endpoints[i].Pair.SlaveAddr {
-			Logger.Printf("RPC.Reload: closing endpoint %s <-> %s", r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
+			Logger.Printf("RPC[%s].Reload: closing endpoint %s <-> %s", r.Slave, r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
 			r.endpoints[i].Close()
 			r.endpoints[i] = createRPCEndpoint(r, pairs[i])
 			r.endpoints[i].Start()
-			Logger.Printf("RPC.Reload: new endpoint %s <-> %s", r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
+			Logger.Printf("RPC[%s].Reload: new endpoint %s <-> %s", r.Slave, r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
 		}
 	}
 	for i := len(r.endpoints); i < len(pairs); i++ {
 		endpoint := createRPCEndpoint(r, pairs[i])
 		r.endpoints = append(r.endpoints, endpoint)
 		endpoint.Start()
-		Logger.Printf("RPC.Reload: new endpoint %s <-> %s", endpoint.Pair.MasterAddr, endpoint.Pair.SlaveAddr)
+		Logger.Printf("RPC[%s].Reload: new endpoint %s <-> %s", r.Slave, endpoint.Pair.MasterAddr, endpoint.Pair.SlaveAddr)
 	}
 }
 
@@ -238,6 +255,10 @@ func (r *RPC) MainLoop() {
 	}
 }
 
+func (r *RPC) Start() {
+	go r.MainLoop()
+}
+
 func (r *RPC) Dial() (net.Conn, error) {
 	n := len(r.endpoints)
 	if n == 0 {
@@ -245,13 +266,4 @@ func (r *RPC) Dial() (net.Conn, error) {
 	}
 	endpoint := r.endpoints[rand.Intn(n)]
 	return endpoint.Dial()
-}
-
-func CreateRPC(hub *Hub) *RPC {
-	rpc := new(RPC)
-	rpc.hub = hub
-	rpc.pairManager = common.CreateRPCPairManager()
-	rpc.endpoints = make([]*RPCEndpoint, 0)
-	rpc.die = make(chan struct{})
-	return rpc
 }

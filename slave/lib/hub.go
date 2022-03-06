@@ -3,7 +3,8 @@ package lib
 import "time"
 
 type Hub struct {
-	rpc *RPC
+	stocks []*StockHandler
+	rpcs   map[string]*RPC
 }
 
 func (h *Hub) MainLoop() {
@@ -15,6 +16,7 @@ func (h *Hub) MainLoop() {
 
 func CreateHub() *Hub {
 	hub := new(Hub)
-	hub.rpc = CreateRPC()
+	hub.rpcs = make(map[string]*RPC)
+	// for _, slave := range Config.sla
 	return hub
 }

@@ -98,12 +98,7 @@ func (m *RPCPairManager) WatchForChange() {
 	watcher.Add(m.file)
 }
 
-func CreateRPCPairManager() *RPCPairManager {
-	file, err := os.UserConfigDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	file = path.Join(file, "bltrader", "rpc.json")
+func CreateRPCPairManager(file string) *RPCPairManager {
 	configContent, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatal(err)

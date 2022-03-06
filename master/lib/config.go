@@ -7,16 +7,24 @@ import (
 	"path"
 )
 
+type SlaveInfo struct {
+	Name   string  `json:"Name"`
+	Stocks []int32 `json:"Stocks"`
+}
+
 type MasterConfig struct {
-	Name     string `json:"Name"`
-	CacheDir string `json:"CacheDir"`
-	DataDir  string `json:"DataDir"`
-	Listen   string `json:"Listen"`
-	Magic    uint32 `json:"Magic"`
-	Compress bool   `json:"Compress"`
+	Name     string      `json:"Name"`
+	CacheDir string      `json:"CacheDir"`
+	DataDir  string      `json:"DataDir"`
+	Listen   string      `json:"Listen"`
+	Magic    uint32      `json:"Magic"`
+	Compress bool        `json:"Compress"`
+	Slaves   []SlaveInfo `json:"Slaves"`
 }
 
 var Config MasterConfig
+var StockMap map[int32]string
+var SlaveMap map[string][]int32
 
 func init() {
 	configPath, err := os.UserConfigDir()
@@ -35,5 +43,19 @@ func init() {
 	}
 	Config = config
 	Logger.SetPrefix(fmt.Sprintf("[master %s] ", Config.Name))
+	StockMap = make(map[int32]string)
+	SlaveMap = make(map[string][]int32)
+	for _, slave := range Config.Slaves {
+		if _, ok := SlaveMap[slave.Name]; ok {
+			Logger.Fatalln("duplicate slave name:", slave.Name)
+		}
+		SlaveMap[slave.Name] = slave.Stocks
+		for _, stock := range slave.Stocks {
+			if _, ok := StockMap[stock]; ok {
+				Logger.Fatalln("duplicate stock:", stock)
+			}
+			StockMap[stock] = slave.Name
+		}
+	}
 	Logger.Println("config loaded")
 }

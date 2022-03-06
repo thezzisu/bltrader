@@ -23,13 +23,7 @@ func (a *API) MainLoop() {
 	}
 
 	Logger.Printf("API listening on %s", Config.Listen)
-	for {
-		conn, err := a.listener.AcceptTCP()
-		if err != nil {
-			Logger.Println(err)
-		}
-		go a.hub.HandleConn(conn)
-	}
+	// TODO
 }
 
 func CreateAPI(hub *Hub) *API {

@@ -2,15 +2,24 @@ package lib
 
 import (
 	"encoding/binary"
-	"io"
 	"math/rand"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/thezzisu/bltrader/common"
 	"github.com/thezzisu/bltrader/compress"
 	"github.com/thezzisu/bltrader/smux"
 )
+
+var smuxConfig = &smux.Config{
+	Version:           1,
+	KeepAliveInterval: 1 * time.Second,
+	KeepAliveTimeout:  3 * time.Second,
+	MaxFrameSize:      32768,
+	MaxReceiveBuffer:  4194304,
+	MaxStreamBuffer:   65536,
+}
 
 type RPCEndpoint struct {
 	rpc *RPC
@@ -24,6 +33,19 @@ type RPCEndpoint struct {
 	incomingConn chan net.Conn
 	outgoingConn chan net.Conn
 	dialRequest  chan struct{}
+}
+
+func createRPCEndpoint(rpc *RPC, pair common.RPCPair) *RPCEndpoint {
+	e := new(RPCEndpoint)
+	e.rpc = rpc
+	e.hub = rpc.hub
+	e.Pair = pair
+	e.die = make(chan struct{})
+	e.incomingConn = make(chan net.Conn)
+	e.outgoingConn = make(chan net.Conn)
+	e.dialRequest = make(chan struct{})
+
+	return e
 }
 
 func (e *RPCEndpoint) Close() {
@@ -41,60 +63,119 @@ func (e *RPCEndpoint) IsClosed() bool {
 	}
 }
 
-func (e *RPCEndpoint) MainLoop() {
-	laddr, err := net.ResolveTCPAddr("tcp", e.Pair.SlaveAddr)
-	if err != nil {
-		Logger.Println(err)
-		return
-	}
-	raddr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
-	if err != nil {
-		Logger.Println(err)
-		return
-	}
+func (e *RPCEndpoint) handleConn(conn net.Conn) {
+	// TODO
+}
+
+func (e *RPCEndpoint) Dial() (net.Conn, error) {
+	e.dialRequest <- struct{}{}
+	return <-e.outgoingConn, nil
+}
+
+func (e *RPCEndpoint) AcceptLoop() {
 	for !e.IsClosed() {
-		e.conn, err = net.DialTCP("tcp", laddr, raddr)
-		if err != nil {
-			Logger.Println(err)
-			return
+		conn := <-e.incomingConn
+
+	connLoop:
+		for !e.IsClosed() {
+			sess, err := smux.Server(conn, smuxConfig)
+			if err != nil {
+				break
+			}
+		sessLoop:
+			for {
+				select {
+				case newConn := <-e.incomingConn:
+					conn.Close()
+					conn = newConn
+					break sessLoop
+
+				case <-e.dialRequest:
+					stream, err := sess.OpenStream()
+					if err != nil {
+						sess.Close()
+						break connLoop
+					}
+					e.outgoingConn <- stream
+
+				case <-e.die:
+					sess.Close()
+					break connLoop
+
+				default:
+				}
+				stream, err := sess.AcceptStream()
+				if err != nil {
+					sess.Close()
+					break connLoop
+				}
+				go e.handleConn(stream)
+			}
+
+			sess.Close()
 		}
-		if Config.Compress {
-			e.conn = compress.NewCompStream(e.conn)
-		}
-		e.sess, err = smux.Client(e.conn, nil)
-		if err != nil {
-			Logger.Println(err)
-			return
-		}
-		select {
-		case <-e.err:
-		case <-e.die:
-		}
+
+		conn.Close()
 	}
 }
 
-func (e *RPCEndpoint) Dial() (io.ReadWriteCloser, error) {
-	stream, err := e.sess.Open()
+func (e *RPCEndpoint) ListenLoop() {
+	addr, err := net.ResolveTCPAddr("tcp", e.Pair.MasterAddr)
 	if err != nil {
-		e.err <- struct{}{}
-		return nil, err
+		Logger.Println("RPCEndpoint.MainLoop:ResolveTCPAddr", err)
+		return
 	}
-	return stream, nil
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		Logger.Println("RPCEndpoint.MainLoop:ListenTCP", err)
+		return
+	}
+	defer listener.Close()
+
+	Logger.Printf("Endpoint listening on %s", e.Pair.MasterAddr)
+
+	for !e.IsClosed() {
+		conn, err := listener.AcceptTCP()
+		if err != nil {
+			Logger.Println("RPCEndpoint.MainLoop:AcceptTCP", err)
+			continue
+		}
+		var magic uint32
+		err = binary.Read(conn, binary.LittleEndian, &magic)
+		if err != nil || magic != Config.Magic {
+			conn.Close()
+			continue
+		}
+		Logger.Printf("Endpoint accepted connection from %s", conn.RemoteAddr().String())
+		if Config.Compress {
+			e.incomingConn <- compress.NewCompStream(conn)
+		} else {
+			e.incomingConn <- conn
+		}
+	}
 }
 
-func createRPCEndpoint(r *RPC, pair common.RPCPair) *RPCEndpoint {
-	e := new(RPCEndpoint)
-	e.die = make(chan struct{})
-	e.err = make(chan struct{})
-	e.Pair = pair
-	return e
+func (e *RPCEndpoint) Start() {
+	go e.AcceptLoop()
+	go e.ListenLoop()
 }
 
 type RPC struct {
+	hub         *Hub
 	pairManager *common.RPCPairManager
 	endpoints   []*RPCEndpoint
-	die         chan struct{}
-	dieOnce     sync.Once
+
+	die     chan struct{}
+	dieOnce sync.Once
+}
+
+func CreateRPC(hub *Hub) *RPC {
+	rpc := new(RPC)
+	rpc.hub = hub
+	rpc.pairManager = common.CreateRPCPairManager()
+	rpc.endpoints = make([]*RPCEndpoint, 0)
+	rpc.die = make(chan struct{})
+	return rpc
 }
 
 func (r *RPC) Reload() {
@@ -115,14 +196,14 @@ func (r *RPC) Reload() {
 			Logger.Printf("RPC.Reload: closing endpoint %s <-> %s", r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
 			r.endpoints[i].Close()
 			r.endpoints[i] = createRPCEndpoint(r, pairs[i])
-			go r.endpoints[i].MainLoop()
+			r.endpoints[i].Start()
 			Logger.Printf("RPC.Reload: new endpoint %s <-> %s", r.endpoints[i].Pair.MasterAddr, r.endpoints[i].Pair.SlaveAddr)
 		}
 	}
 	for i := len(r.endpoints); i < len(pairs); i++ {
 		endpoint := createRPCEndpoint(r, pairs[i])
 		r.endpoints = append(r.endpoints, endpoint)
-		go endpoint.MainLoop()
+		endpoint.Start()
 		Logger.Printf("RPC.Reload: new endpoint %s <-> %s", endpoint.Pair.MasterAddr, endpoint.Pair.SlaveAddr)
 	}
 }
@@ -160,54 +241,11 @@ func (r *RPC) MainLoop() {
 	}
 }
 
-func (r *RPC) Dial() (io.ReadWriteCloser, error) {
+func (r *RPC) Dial() (net.Conn, error) {
 	n := len(r.endpoints)
 	if n == 0 {
-		return nil, ErrAgain
+		return nil, common.ErrNoEndpoint
 	}
 	endpoint := r.endpoints[rand.Intn(n)]
 	return endpoint.Dial()
-}
-
-func (r *RPC) RpcEcho(msg string) (string, error) {
-	conn, err := r.Dial()
-	if err != nil {
-		return "", err
-	}
-
-	header := make([]byte, 5)
-	binary.LittleEndian.PutUint32(header, Config.Magic)
-	header[4] = common.RPC_ECHO
-
-	conn.Write(header)
-
-	body := []byte(msg)
-	length := make([]byte, 4)
-	binary.LittleEndian.PutUint32(length, uint32(len(body)))
-
-	conn.Write(length)
-	conn.Write(body)
-
-	io.ReadFull(conn, header)
-	if err != nil {
-		return "", err
-	}
-
-	if header[4] != common.RPC_STATUS_OK {
-		return "", common.ErrRPC
-	}
-
-	io.ReadFull(conn, length)
-	buf := make([]byte, binary.LittleEndian.Uint32(length))
-	io.ReadFull(conn, buf)
-
-	return string(buf), nil
-}
-
-func CreateRPC() *RPC {
-	rpc := new(RPC)
-	rpc.pairManager = common.CreateRPCPairManager()
-	rpc.endpoints = make([]*RPCEndpoint, 0)
-	rpc.die = make(chan struct{})
-	return rpc
 }
