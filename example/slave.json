@@ -1,3 +1,11 @@
 {
-  "Name" : "test-node"
+  "Name": "test-node",
+  "DataDir": "C:\\Users\\thezzisu\\Desktop\\Workspace\\thezzisu\\bltrader\\.data\\data\\master-2",
+  "Magic": 19260817,
+  "Compress": true,
+  "Masters": [
+    {
+      "Name": "master-1"
+    }
+  ]
 }

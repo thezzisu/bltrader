@@ -90,6 +90,19 @@ func (e *RPCEndpoint) AcceptLoop() {
 			if err != nil {
 				break
 			}
+			Logger.Printf("RPCEndpoint.DialLoop: %s connected\n", e.Pair.SlaveAddr)
+			acceptCh := make(chan net.Conn)
+			go func() {
+				for {
+					stream, err := sess.AcceptStream()
+					Logger.Println("RPCEndpoint.DialLoop.inner: stream accepted")
+					if err != nil {
+						sess.Close()
+						break
+					}
+					acceptCh <- stream
+				}
+			}()
 		sessLoop:
 			for {
 				select {
@@ -102,25 +115,24 @@ func (e *RPCEndpoint) AcceptLoop() {
 					stream, err := sess.OpenStream()
 					if err != nil {
 						sess.Close()
+						close(acceptCh)
 						break connLoop
 					}
+					Logger.Println("RPCEndpoint.DialLoop: stream opened")
 					e.outgoingConn <- stream
 
 				case <-e.die:
 					sess.Close()
 					break connLoop
 
-				default:
+				case stream := <-acceptCh:
+					Logger.Println("RPCEndpoint.DialLoop: stream accepted")
+					go e.handleConn(stream)
 				}
-				stream, err := sess.AcceptStream()
-				if err != nil {
-					sess.Close()
-					break connLoop
-				}
-				go e.handleConn(stream)
 			}
 
 			sess.Close()
+			close(acceptCh)
 		}
 
 		conn.Close()

@@ -7,11 +7,17 @@ import (
 	"path"
 )
 
+type MasterInfo struct {
+	Name string `json:"Name"`
+}
+
 type SlaveConfig struct {
-	Name     string `json:"Name"`
-	DataDir  string `json:"DataDir"`
-	Magic    uint32 `json:"Magic"`
-	Compress bool   `json:"Compress"`
+	Name     string       `json:"Name"`
+	DataDir  string       `json:"DataDir"`
+	Magic    uint32       `json:"Magic"`
+	Compress bool         `json:"Compress"`
+	Masters  []MasterInfo `json:"Masters"`
+	Stocks   []int32      `json:"Stocks"`
 }
 
 var Config SlaveConfig
@@ -33,5 +39,12 @@ func init() {
 	}
 	Config = config
 	Logger.SetPrefix(fmt.Sprintf("[slave %s] ", Config.Name))
+	stockMap := make(map[int32]struct{})
+	for _, stock := range Config.Stocks {
+		if _, ok := stockMap[stock]; ok {
+			Logger.Fatalln("duplicate stock:", stock)
+		}
+		stockMap[stock] = struct{}{}
+	}
 	Logger.Println("config loaded")
 }

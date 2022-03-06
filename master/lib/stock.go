@@ -139,6 +139,8 @@ func (sh *StockHandler) Handle(conn net.Conn) {
 }
 
 func (sh *StockHandler) SendLoop() {
+	Logger.Printf("StockHandler[%d].SendLoop started\n", sh.StockId)
+
 	for {
 		conn := <-sh.incomingConn
 
@@ -177,7 +179,7 @@ func (sh *StockHandler) SendLoop() {
 }
 
 func (sh *StockHandler) RecvLoop() {
-	Logger.Printf("StockHandler %d: interested %d, dep %d\n", sh.StockId, len(sh.interested), len(sh.deps))
+	Logger.Printf("StockHandler[%d].RecvLoop interested %d, dep %d\n", sh.StockId, len(sh.interested), len(sh.deps))
 
 	f, err := os.Create(path.Join(sh.dataDir, fmt.Sprintf("trade%d", sh.StockId+1)))
 	if err != nil {

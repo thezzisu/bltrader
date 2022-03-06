@@ -4,6 +4,7 @@
   "DataDir": "C:\\Users\\thezzisu\\Desktop\\Workspace\\thezzisu\\bltrader\\.data\\data\\master-2",
   "Listen": "127.0.0.1:19260",
   "Magic": 19260817,
+  "Compress": true,
   "Slaves": [
     {
       "Name": "slave-1",

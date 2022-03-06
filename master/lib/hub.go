@@ -1,26 +1,5 @@
 package lib
 
-import (
-	"encoding/binary"
-
-	"github.com/thezzisu/bltrader/common"
-)
-
-var (
-	HEADER_OK  []byte
-	HEADER_ERR []byte
-)
-
-func init() {
-	HEADER_OK = make([]byte, 5)
-	binary.LittleEndian.PutUint32(HEADER_OK, Config.Magic)
-	HEADER_OK[4] = common.RPC_STATUS_OK
-
-	HEADER_ERR = make([]byte, 5)
-	binary.LittleEndian.PutUint32(HEADER_ERR, Config.Magic)
-	HEADER_ERR[4] = common.RPC_STATUS_ERROR
-}
-
 type Hub struct {
 	rpcs   map[string]*RPC
 	stocks map[int32]*StockHandler
