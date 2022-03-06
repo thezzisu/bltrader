@@ -1,7 +1,9 @@
 package lib
 
 import (
+	"encoding/binary"
 	"fmt"
+	"net"
 	"os"
 	"path"
 
@@ -68,6 +70,7 @@ type StockOrderDep struct {
 	Ch  <-chan int32
 }
 
+// TODO implement Close()
 type StockHandler struct {
 	hub *Hub
 
@@ -76,10 +79,10 @@ type StockHandler struct {
 
 	dataDir string
 
-	command chan IPCRequest
-
 	interested map[int32][]chan int32
 	deps       map[int32]StockOrderDep
+
+	incomingConn chan net.Conn
 }
 
 func (sh *StockHandler) Interest(tradeId int32) <-chan int32 {
@@ -92,28 +95,48 @@ func (sh *StockHandler) Interest(tradeId int32) <-chan int32 {
 	return ch
 }
 
-func (sh *StockHandler) GetCommandChan() chan<- IPCRequest {
-	return sh.command
+func (sh *StockHandler) Close() {
+	//
 }
 
-func (sh *StockHandler) Close() {
-	sh.command <- IPCRequest{
-		Method: IPC_EXIT,
+func (sh *StockHandler) Handle(conn net.Conn) {
+	sh.incomingConn <- conn
+}
+
+func (sh *StockHandler) SendLoop() {
+	for {
+		conn := <-sh.incomingConn
+
+		for {
+			var etag int32
+			err := binary.Read(conn, binary.LittleEndian, &etag)
+			if err != nil {
+				break
+			}
+		loop:
+			for {
+				select {
+				case newConn := <-sh.incomingConn:
+					conn.Close()
+					conn = newConn
+					break loop
+				default:
+				}
+				order := sh.info.cacheL[0]
+				binary.Write(conn, binary.LittleEndian, order.OrderId)
+				binary.Write(conn, binary.LittleEndian, order.Direction)
+				binary.Write(conn, binary.LittleEndian, order.Type)
+				binary.Write(conn, binary.LittleEndian, order.Price)
+				binary.Write(conn, binary.LittleEndian, order.Volume)
+			}
+		}
 	}
 }
 
-func (sh *StockHandler) MainLoop() {
+func (sh *StockHandler) RecvLoop() {
 	Logger.Printf("StockHandler %d: interested %d, dep %d\n", sh.StockId, len(sh.interested), len(sh.deps))
 	for {
-		command := <-sh.command
-		switch command.Method {
-		case IPC_EXIT:
-			return
-		case IPC_LOG:
-			Logger.Println("StockHandler.MainLoop: Hello")
-		default:
-			Logger.Fatalln("StockHandler.MainLoop: unknown command")
-		}
+		//
 	}
 }
 
@@ -139,9 +162,9 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	sh.StockId = stockId
 	sh.info = CreateStockInfo(stockId)
 	sh.dataDir = dataDir
-	sh.command = make(chan IPCRequest)
 	sh.interested = make(map[int32][]chan int32)
 	sh.deps = make(map[int32]StockOrderDep)
+	sh.incomingConn = make(chan net.Conn)
 
 	return sh
 }

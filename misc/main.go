@@ -10,7 +10,9 @@ import (
 
 func main() {
 	count := lib.ChunkCount
+	os.MkdirAll(".data", 0700)
 	for stock := 0; stock < 10; stock++ {
+		fmt.Printf("Stock %d\n", stock)
 		hooks := lib.LoadHooks(int32(stock))
 		f, _ := os.Create(fmt.Sprintf(".data/hook-%d.txt", stock))
 		f.WriteString(fmt.Sprintf("%d\n", len(hooks)))

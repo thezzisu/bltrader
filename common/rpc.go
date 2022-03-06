@@ -21,7 +21,8 @@ const (
 )
 
 var (
-	ErrRPC = errors.New("RPC Error")
+	ErrRPC        = errors.New("RPC Error")
+	ErrNoEndpoint = errors.New("RPC Error: No Endpoint")
 )
 
 type RPCPair struct {

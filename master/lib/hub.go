@@ -89,8 +89,9 @@ func (h *Hub) exit() {
 }
 
 func (h *Hub) MainLoop() {
-	for i := 0; i < 10; i++ {
-		go h.stocks[i].MainLoop()
+	for _, stock := range h.stocks {
+		go stock.RecvLoop()
+		go stock.SendLoop()
 	}
 	go h.api.MainLoop()
 	go h.rpc.MainLoop()

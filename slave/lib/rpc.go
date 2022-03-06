@@ -13,24 +13,21 @@ import (
 )
 
 type RPCEndpoint struct {
-	conn net.Conn
-	sess *smux.Session
+	rpc *RPC
+	hub *Hub
 
 	die     chan struct{}
 	dieOnce sync.Once
-	err     chan struct{}
 
 	Pair common.RPCPair
+
+	incomingConn chan net.Conn
+	outgoingConn chan net.Conn
+	dialRequest  chan struct{}
 }
 
 func (e *RPCEndpoint) Close() {
 	e.dieOnce.Do(func() {
-		if e.sess != nil {
-			e.sess.Close()
-		}
-		if e.conn != nil {
-			e.conn.Close()
-		}
 		close(e.die)
 	})
 }
