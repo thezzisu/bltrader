@@ -3,7 +3,6 @@ package lib
 import (
 	"encoding/binary"
 	"net"
-	"time"
 
 	"github.com/thezzisu/bltrader/common"
 )
@@ -44,14 +43,24 @@ func (sh *StockHandler) SendLoop(name string) {
 				default:
 				}
 				// TODO
-				dto := common.BLTradeDTO{
-					BidId:  1,
-					AskId:  2,
-					Price:  3,
-					Volume: 4,
+				if etag > 10000000 {
+					dto := common.BLTradeDTO{
+						BidId:  1,
+						AskId:  2,
+						Price:  3,
+						Volume: -1,
+					}
+					err = binary.Write(conn, binary.LittleEndian, dto)
+				} else {
+					dto := common.BLTradeDTO{
+						BidId:  1,
+						AskId:  2,
+						Price:  3,
+						Volume: 4,
+					}
+					err = binary.Write(conn, binary.LittleEndian, dto)
+					etag++
 				}
-				err = binary.Write(conn, binary.LittleEndian, dto)
-				time.Sleep(time.Second)
 				if err != nil {
 					break connLoop
 				}

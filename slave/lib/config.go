@@ -16,6 +16,7 @@ type SlaveConfig struct {
 	DataDir  string       `json:"DataDir"`
 	Magic    uint32       `json:"Magic"`
 	Compress bool         `json:"Compress"`
+	Procs    int          `json:"Procs"`
 	Masters  []MasterInfo `json:"Masters"`
 	Stocks   []int32      `json:"Stocks"`
 }

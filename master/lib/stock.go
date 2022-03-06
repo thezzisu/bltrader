@@ -200,7 +200,12 @@ fetchLoop:
 		}
 		Logger.Printf("StockHandler[%d].RecvLoop new recv stream\n", sh.StockId)
 		// Send ETag
-		binary.Write(conn, binary.LittleEndian, lastTradeId)
+		err = binary.Write(conn, binary.LittleEndian, lastTradeId)
+		if err != nil {
+			Logger.Printf("StockHandler[%d].RecvLoop %v\n", sh.StockId, err)
+			conn.Close()
+			continue
+		}
 
 		for {
 			var dto common.BLTradeDTO
@@ -210,7 +215,9 @@ fetchLoop:
 				break
 			}
 			lastTradeId++
-			Logger.Printf("Trade: %d -> %v\n", lastTradeId, dto)
+			if lastTradeId%1000000 == 0 {
+				Logger.Printf("== %d\n", lastTradeId)
+			}
 			if _, ok := sh.interested[lastTradeId]; ok {
 				// Trade is interested
 				cbs := sh.interested[lastTradeId]
@@ -218,16 +225,16 @@ fetchLoop:
 					cb <- dto.Volume
 				}
 			}
-			// Persist
-			binary.Write(writer, nativeEndian, sh.StockId+1)
-			binary.Write(writer, nativeEndian, dto.BidId)
-			binary.Write(writer, nativeEndian, dto.AskId)
-			binary.Write(writer, nativeEndian, dto.Price)
-			binary.Write(writer, nativeEndian, dto.Volume)
 			if dto.Volume == -1 {
 				conn.Close()
 				break fetchLoop
 			}
+			// Persist
+			// binary.Write(writer, nativeEndian, sh.StockId+1)
+			// binary.Write(writer, nativeEndian, dto.BidId)
+			// binary.Write(writer, nativeEndian, dto.AskId)
+			// binary.Write(writer, nativeEndian, dto.Price)
+			// binary.Write(writer, nativeEndian, dto.Volume)
 		}
 		conn.Close()
 	}

@@ -19,6 +19,7 @@ type MasterConfig struct {
 	Listen   string      `json:"Listen"`
 	Magic    uint32      `json:"Magic"`
 	Compress bool        `json:"Compress"`
+	Procs    int         `json:"Procs"`
 	Slaves   []SlaveInfo `json:"Slaves"`
 }
 

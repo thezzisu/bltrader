@@ -35,6 +35,9 @@ type RPCEndpoint struct {
 
 	outgoingConn chan net.Conn
 	dialRequest  chan struct{}
+
+	listener *net.TCPListener
+	sess     *smux.Session
 }
 
 func createRPCEndpoint(rpc *RPC, pair common.RPCPair) *RPCEndpoint {
@@ -87,7 +90,7 @@ func (e *RPCEndpoint) AcceptLoop() {
 	}
 
 	for !e.IsClosed() {
-		listener, err := net.ListenTCP("tcp", addr)
+		e.listener, err = net.ListenTCP("tcp", addr)
 		if err != nil {
 			Logger.Println("RPCEndpoint.AcceptLoop", err)
 			time.Sleep(time.Second / 2)
@@ -97,7 +100,7 @@ func (e *RPCEndpoint) AcceptLoop() {
 		Logger.Printf("Endpoint listening on %s", e.Pair.MasterAddr)
 		for !e.IsClosed() {
 			var conn net.Conn
-			conn, err = listener.AcceptTCP()
+			conn, err = e.listener.AcceptTCP()
 			if err != nil {
 				Logger.Println("RPCEndpoint.AcceptLoop", err)
 				break
@@ -114,7 +117,7 @@ func (e *RPCEndpoint) AcceptLoop() {
 				conn = compress.NewCompStream(conn)
 			}
 
-			sess, err := smux.Server(conn, smuxConfig)
+			e.sess, err = smux.Server(conn, smuxConfig)
 			if err != nil {
 				Logger.Println("RPCEndpoint.AcceptLoop", err)
 				conn.Close()
@@ -125,7 +128,7 @@ func (e *RPCEndpoint) AcceptLoop() {
 			dieCh := make(chan struct{})
 			go func() {
 				for {
-					stream, err := sess.AcceptStream()
+					stream, err := e.sess.AcceptStream()
 					if err != nil {
 						common.TryClose(dieCh)
 						return
@@ -138,7 +141,7 @@ func (e *RPCEndpoint) AcceptLoop() {
 			for {
 				select {
 				case <-e.dialRequest:
-					stream, err := sess.OpenStream()
+					stream, err := e.sess.OpenStream()
 					if err != nil {
 						common.TryClose(dieCh)
 						break
@@ -155,7 +158,7 @@ func (e *RPCEndpoint) AcceptLoop() {
 
 				case <-dieCh:
 					Logger.Printf("RPCEndpoint.AcceptLoop: connection from %s closed\n", e.Pair.SlaveAddr)
-					sess.Close()
+					e.sess.Close()
 					close(acceptCh)
 					// dieCh is already closed
 					break sessLoop
@@ -165,7 +168,7 @@ func (e *RPCEndpoint) AcceptLoop() {
 			conn.Close()
 		}
 
-		listener.Close()
+		e.listener.Close()
 	}
 }
 
@@ -269,7 +272,9 @@ func (r *RPC) Dial(stock int32) (net.Conn, error) {
 	if n == 0 {
 		return nil, common.ErrNoEndpoint
 	}
-	endpoint := r.endpoints[rand.Intn(n)]
+	m := rand.Intn(n)
+	Logger.Printf("allocated connection: %d\n", m)
+	endpoint := r.endpoints[m]
 	conn, err := endpoint.Dial()
 	if err != nil {
 		return nil, err
