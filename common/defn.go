@@ -1,6 +1,9 @@
 package common
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 type BLOrder struct {
 	StkCode   int32
@@ -21,16 +24,39 @@ func (order BLOrder) String() string {
 }
 
 type BLOrderDTO struct {
-	OrderId   int32
-	Direction int32
-	Type      int32
-	Price     float64
-	Volume    int32
+	Mix     int32
+	OrderId int32
+	Price   int32
+}
+
+func MarshalOrderDTO(order *BLOrder, dto *BLOrderDTO) {
+	mix := order.Volume
+	mix |= order.StkCode << 24
+	if order.Direction == -1 {
+		mix |= 1 << 23
+	}
+	mix |= order.Type << 20
+
+	dto.Mix = mix
+	dto.OrderId = order.OrderId
+	dto.Price = int32(math.Round(order.Price * 100))
+}
+
+func UnmarshalOrderDTO(dto *BLOrderDTO, order *BLOrder) {
+	var direction int32 = 1
+	if dto.Mix&(1<<23) != 0 {
+		direction = -1
+	}
+	order.StkCode = dto.Mix >> 24
+	order.OrderId = dto.OrderId
+	order.Direction = direction
+	order.Type = dto.Mix >> 20 & 7
+	order.Price = float64(dto.Price) / 100
+	order.Volume = dto.Mix & 0xfffff
 }
 
 type BLTrade struct {
 	StkCode int32
-	TradeId int32 // **starting from 1** for each stock
 	BidId   int32 //买方
 	AskId   int32 //卖方
 	Price   float64
@@ -38,14 +64,32 @@ type BLTrade struct {
 }
 
 func (trade BLTrade) String() string {
-	return fmt.Sprintf("Trade {\n\tstk = %d\n\ttxn = %d\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.StkCode, trade.TradeId, trade.BidId, trade.AskId, trade.Price, trade.Volume)
+	return fmt.Sprintf("Trade {\n\tstk = %d\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.StkCode, trade.BidId, trade.AskId, trade.Price, trade.Volume)
 }
 
 type BLTradeDTO struct {
-	BidId  int32
-	AskId  int32
-	Price  float64
-	Volume int32
+	Mix   int32
+	BidId int32
+	AskId int32
+	Price int32
+}
+
+func MarshalTradeDTO(trade *BLTrade, dto *BLTradeDTO) {
+	mix := trade.Volume
+	mix |= trade.StkCode << 24
+
+	dto.Mix = mix
+	dto.BidId = trade.BidId
+	dto.AskId = trade.AskId
+	dto.Price = int32(math.Round(trade.Price * 100))
+}
+
+func UnmarshalTradeDTO(dto *BLTradeDTO, trade *BLTrade) {
+	trade.StkCode = dto.Mix >> 24
+	trade.BidId = dto.BidId
+	trade.AskId = dto.AskId
+	trade.Price = float64(dto.Price) / 100
+	trade.Volume = dto.Mix & 0xfffff
 }
 
 type BLHook struct {

@@ -161,14 +161,14 @@ func (sh *StockHandler) SendLoop() {
 				default:
 				}
 				// TODO
-				order := sh.info.cacheL[0]
-				err := binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
-					OrderId:   order.OrderId,
-					Direction: order.Direction,
-					Type:      order.Type,
-					Price:     order.Price,
-					Volume:    order.Volume,
-				})
+				// order := sh.info.cacheL[0]
+				// err := binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
+				// 	OrderId:   order.OrderId,
+				// 	Direction: order.Direction,
+				// 	Type:      order.Type,
+				// 	Price:     order.Price,
+				// 	Volume:    order.Volume,
+				// })
 				if err != nil {
 					break connLoop
 				}
@@ -192,7 +192,7 @@ func (sh *StockHandler) RecvLoop() {
 	writer := bufio.NewWriter(f)
 
 	lastTradeId := int32(0)
-fetchLoop:
+	// fetchLoop:
 	for {
 		conn, err := sh.rpc.Dial(sh.StockId)
 		if err != nil {
@@ -219,16 +219,17 @@ fetchLoop:
 				Logger.Printf("== %d\n", lastTradeId)
 			}
 			if _, ok := sh.interested[lastTradeId]; ok {
+				// TODO
 				// Trade is interested
-				cbs := sh.interested[lastTradeId]
-				for _, cb := range cbs {
-					cb <- dto.Volume
-				}
+				// cbs := sh.interested[lastTradeId]
+				// for _, cb := range cbs {
+				// 	cb <- dto.Volume
+				// }
 			}
-			if dto.Volume == -1 {
-				conn.Close()
-				break fetchLoop
-			}
+			// if dto.Volume == -1 {
+			// 	conn.Close()
+			// 	break fetchLoop
+			// }
 			// Persist
 			// binary.Write(writer, nativeEndian, sh.StockId+1)
 			// binary.Write(writer, nativeEndian, dto.BidId)
