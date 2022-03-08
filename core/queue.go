@@ -19,6 +19,7 @@ func (queue *Queue) Push(p *sync.Pool, order *ShortOrder) {
 	v.order.OrderId = order.OrderId
 	v.order.Price = order.Price
 	v.order.Volume = order.Volume
+	v.next = nil
 	if queue.head == nil {
 		queue.head, queue.tail = v, v
 	} else {

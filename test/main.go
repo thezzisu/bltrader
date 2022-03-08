@@ -30,45 +30,66 @@ func main() {
 	}
 	btrade := make([]common.BLTrade, 0)
 	blr := new(core.BLRunner)
-	blr.Load(-10000.0, 10000.0)
 	t1 := time.Now()
-	for i := 0; i < ordn; i++ {
-		if _, ok := fob[orders[i].OrderId]; ok {
-			continue
+	bp := 0
+	isdp := true
+	func(breakpoint int, isDump bool) {
+		blr.Load(-10000.0, 10000.0)
+		if isDump {
+			for i := 0; i < ordn; i++ {
+				if i == breakpoint && i > 0 {
+					blr.Dump()
+					fmt.Printf("Succeeded in Dump,the trade size = %d\n", len(btrade))
+				}
+				if _, ok := fob[orders[i].OrderId]; ok {
+					continue
+				}
+				btrade = append(btrade, blr.Dispatch(&orders[i])...)
+			}
+		} else {
+			for i := breakpoint; i < ordn; i++ {
+				if _, ok := fob[orders[i].OrderId]; ok {
+					continue
+				}
+				btrade = append(btrade, blr.Dispatch(&orders[i])...)
+			}
 		}
-		btrade = append(btrade, blr.Dispatch(&orders[i])...)
-	}
+	}(bp, isdp)
 	t2 := time.Now()
+	toffset := 5000
+	if isdp {
+		toffset = 0
+	}
 	fmt.Printf("main part's time %d (ms)\n", t2.Sub(t1).Milliseconds())
 	fmt.Printf("AnsTrades %d,MyTrades %d\n", tran, len(btrade))
 	tnn := tran
-	if tnn > len(btrade) {
-		tnn = len(btrade)
+	if tnn > len(btrade)+toffset {
+		tnn = len(btrade) + toffset
 	}
 	i := 0
-	for i = 0; i < tnn; i++ {
-		if atrade[i].BidId != btrade[i].BidId {
+	for i = toffset; i < tnn; i++ {
+		if atrade[i].BidId != btrade[i-toffset].BidId {
 			fmt.Printf("Differ At: %d\n", i)
 			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i].String())
+			fmt.Println(btrade[i-toffset].String())
 			break
 		}
-		if atrade[i].AskId != btrade[i].AskId {
+		if atrade[i].AskId != btrade[i-toffset].AskId {
 			fmt.Printf("Differ At: %d\n", i)
 			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i].String())
+			fmt.Println(btrade[i-toffset].String())
 			break
 		}
-		if atrade[i].Price != btrade[i].Price {
+		if atrade[i].Price != btrade[i-toffset].Price {
 			fmt.Printf("Differ At: %d\n", i)
 			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i].String())
+			fmt.Println(btrade[i-toffset].String())
 			break
 		}
-		if atrade[i].Volume != btrade[i].Volume {
+		if atrade[i].Volume != btrade[i-toffset].Volume {
 			fmt.Printf("Differ At: %d\n", i)
 			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i].String())
+			fmt.Println(btrade[i-toffset].String())
 			break
 		}
 	}

@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"sync"
 
@@ -69,10 +70,10 @@ func (blrunner *BLRunner) GenTrade(order *common.BLOrder, ordee *ShortOrder, pri
 	}
 	if isMeBuy {
 		blrunner.sellVolume -= vol
-		return common.BLTrade{StkCode: order.StkCode, TradeId: 0, BidId: order.OrderId, AskId: ordee.OrderId, Price: price, Volume: vol}
+		return common.BLTrade{StkCode: order.StkCode, BidId: order.OrderId, AskId: ordee.OrderId, Price: price, Volume: vol}
 	} else {
 		blrunner.buyVolume -= vol
-		return common.BLTrade{StkCode: order.StkCode, TradeId: 0, BidId: ordee.OrderId, AskId: order.OrderId, Price: price, Volume: vol}
+		return common.BLTrade{StkCode: order.StkCode, BidId: ordee.OrderId, AskId: order.OrderId, Price: price, Volume: vol}
 	}
 }
 
@@ -329,18 +330,16 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 	blrunner.lowerPrice = lower
 	blrunner.upperPrice = upper
 	blrunner.queuePool = &sync.Pool{New: func() interface{} { return new(LinkNode) }}
-	bFile, errB := os.OpenFile("./buy_cache", os.O_RDONLY, 0777)
-	sFile, errS := os.OpenFile("./sell_cache", os.O_RDONLY, 0777)
-	if errB != nil || errS != nil {
+	_, errB := os.Stat("./buy_cache")
+	_, errS := os.Stat("./sell_cache")
+	noB, noS := os.IsNotExist(errB), os.IsNotExist(errS)
+	if noB || noS {
 		blrunner.buyVolume, blrunner.sellVolume = 0, 0
-		if errB == nil {
-			bFile.Close()
-		}
-		if errS == nil {
-			sFile.Close()
-		}
 		return
 	}
+	//return
+	bFile, _ := os.OpenFile("./buy_cache", os.O_RDONLY, 0777)
+	sFile, _ := os.OpenFile("./sell_cache", os.O_RDONLY, 0777)
 	buf := make([]byte, 4)
 	rb := bytes.NewReader(buf)
 	if _, err := bFile.Read(buf); err == nil {
@@ -354,12 +353,14 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 	} else {
 		panic("Cache corrupt")
 	}
+	blrunner.buyVolume--
+	blrunner.sellVolume--
 	rb.Reset(buf)
 	buf = make([]byte, 28)
 	for {
 		if _, err := bFile.Read(buf); err == nil {
 			order := new(ShortOrder)
-			binary.Read(rb, binary.LittleEndian, order)
+			binary.Read(rb, binary.LittleEndian, &order)
 			blrunner.InsertOrder(blrunner.buyTree, order)
 			rb.Reset(buf)
 		} else {
@@ -369,7 +370,7 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 	for {
 		if _, err := sFile.Read(buf); err == nil {
 			order := new(ShortOrder)
-			binary.Read(rb, binary.LittleEndian, order)
+			binary.Read(rb, binary.LittleEndian, &order)
 			blrunner.InsertOrder(blrunner.sellTree, order)
 			rb.Reset(buf)
 		} else {
@@ -381,17 +382,27 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 }
 
 func (blrunner *BLRunner) Dump() {
-	bFile, errB := os.OpenFile("./buy_cache", os.O_WRONLY, 0777)
-	sFile, errS := os.OpenFile("./sell_cache", os.O_WRONLY, 0777)
+	bFile, errB := os.OpenFile("./buy_cache", os.O_CREATE|os.O_WRONLY, 0777)
+	sFile, errS := os.OpenFile("./sell_cache", os.O_CREATE|os.O_WRONLY, 0777)
 	if errB != nil || errS != nil {
 		panic("Failed to write cache")
 	}
+	fmt.Printf("[Dump] buy %d sell %d\n", blrunner.buyVolume, blrunner.sellVolume)
 	wb := new(bytes.Buffer)
 	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume)
 	_, _ = bFile.Write(wb.Bytes())
 	wb.Reset()
-	_ = binary.Write(wb, binary.LittleEndian, blrunner.sellVolume)
+	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume+1)
 	_, _ = bFile.Write(wb.Bytes())
+	wb.Reset()
+	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume+1)
+	_, _ = bFile.Write(wb.Bytes())
+	wb.Reset()
+	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume+1)
+	_, _ = bFile.Write(wb.Bytes())
+	wb.Reset()
+	_ = binary.Write(wb, binary.LittleEndian, blrunner.sellVolume+1)
+	_, _ = sFile.Write(wb.Bytes())
 	wb.Reset()
 	it := blrunner.buyTree.Iterator()
 	for it.Next() {
