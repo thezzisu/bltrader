@@ -1,7 +1,6 @@
 package lib
 
 import (
-	"bufio"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -90,10 +89,10 @@ type StockOrderDep struct {
 
 // TODO implement Close()
 type StockHandler struct {
-	hub *Hub
-	rpc *RPC
+	hub    *Hub
+	remote *Remote
 
-	StockId int32
+	stockId int32
 	info    *StockInfo
 
 	dataDir string
@@ -113,8 +112,8 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 
 	sh := new(StockHandler)
 	sh.hub = hub
-	sh.rpc = hub.rpcs[StockMap[stockId]]
-	sh.StockId = stockId
+	sh.remote = hub.remotes[StockMap[stockId]]
+	sh.stockId = stockId
 	sh.info = CreateStockInfo(stockId)
 	sh.dataDir = dataDir
 	sh.interested = make(map[int32][]chan int32)
@@ -139,7 +138,7 @@ func (sh *StockHandler) Handle(conn net.Conn) {
 }
 
 func (sh *StockHandler) SendLoop() {
-	Logger.Printf("StockHandler[%d].SendLoop started\n", sh.StockId)
+	Logger.Printf("StockHandler[%d].SendLoop started\n", sh.stockId)
 
 	for {
 		conn := <-sh.incomingConn
@@ -179,70 +178,7 @@ func (sh *StockHandler) SendLoop() {
 }
 
 func (sh *StockHandler) RecvLoop() {
-	Logger.Printf("StockHandler[%d].RecvLoop interested %d, dep %d\n", sh.StockId, len(sh.interested), len(sh.deps))
-
-	f, err := os.Create(path.Join(sh.dataDir, fmt.Sprintf("trade%d", sh.StockId+1)))
-	if err != nil {
-		Logger.Fatalf("StockHandler[%d].RecvLoop %v\n", sh.StockId, err)
-	}
-	err = f.Chmod(0600)
-	if err != nil {
-		Logger.Fatalf("StockHandler[%d].RecvLoop %v\n", sh.StockId, err)
-	}
-	writer := bufio.NewWriter(f)
-
-	lastTradeId := int32(0)
-	// fetchLoop:
-	for {
-		conn, err := sh.rpc.Dial(sh.StockId)
-		if err != nil {
-			continue
-		}
-		Logger.Printf("StockHandler[%d].RecvLoop new recv stream\n", sh.StockId)
-		// Send ETag
-		err = binary.Write(conn, binary.LittleEndian, lastTradeId)
-		if err != nil {
-			Logger.Printf("StockHandler[%d].RecvLoop %v\n", sh.StockId, err)
-			conn.Close()
-			continue
-		}
-
-		for {
-			var dto common.BLTradeDTO
-			err := binary.Read(conn, binary.LittleEndian, &dto)
-			if err != nil {
-				Logger.Printf("StockHandler[%d].RecvLoop %v\n", sh.StockId, err)
-				break
-			}
-			lastTradeId++
-			if lastTradeId%1000000 == 0 {
-				Logger.Printf("== %d\n", lastTradeId)
-			}
-			if _, ok := sh.interested[lastTradeId]; ok {
-				// TODO
-				// Trade is interested
-				// cbs := sh.interested[lastTradeId]
-				// for _, cb := range cbs {
-				// 	cb <- dto.Volume
-				// }
-			}
-			// if dto.Volume == -1 {
-			// 	conn.Close()
-			// 	break fetchLoop
-			// }
-			// Persist
-			// binary.Write(writer, nativeEndian, sh.StockId+1)
-			// binary.Write(writer, nativeEndian, dto.BidId)
-			// binary.Write(writer, nativeEndian, dto.AskId)
-			// binary.Write(writer, nativeEndian, dto.Price)
-			// binary.Write(writer, nativeEndian, dto.Volume)
-		}
-		conn.Close()
-	}
-
-	Logger.Printf("StockHandler[%d] Fetch done total = %d\n", sh.StockId, lastTradeId)
-	writer.Flush()
-	f.Close()
+	// TODO
 }
 
 func (sh *StockHandler) InitDeps() {
@@ -256,6 +192,7 @@ func (sh *StockHandler) InitDeps() {
 }
 
 func (sh *StockHandler) Start() {
+	sh.hub.wg.Add(1)
 	go sh.SendLoop()
 	go sh.RecvLoop()
 }

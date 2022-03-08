@@ -1,18 +1,19 @@
 package lib
 
-type Hub struct {
-	rpcs   map[string]*RPC
-	stocks map[int32]*StockHandler
+import "sync"
 
-	command chan *IPCRequest
+type Hub struct {
+	remotes map[string]*Remote
+	stocks  map[int32]*StockHandler
+	wg      sync.WaitGroup
 }
 
 func CreateHub() *Hub {
 	hub := new(Hub)
 
-	hub.rpcs = make(map[string]*RPC)
+	hub.remotes = make(map[string]*Remote)
 	for _, slave := range Config.Slaves {
-		hub.rpcs[slave.Name] = CreateRPC(hub, slave.Name)
+		hub.remotes[slave.Name] = CreateRemote(hub, slave.Name)
 	}
 
 	hub.stocks = make(map[int32]*StockHandler)
@@ -23,28 +24,15 @@ func CreateHub() *Hub {
 		stock.InitDeps()
 	}
 
-	hub.command = make(chan *IPCRequest)
 	return hub
 }
 
-func (h *Hub) GetCommandChan() chan<- *IPCRequest {
-	return h.command
-}
-
-func (h *Hub) MainLoop() {
+func (h *Hub) Start() {
 	for _, stock := range h.stocks {
 		stock.Start()
 	}
-	for _, rpc := range h.rpcs {
-		rpc.Start()
+	for _, remote := range h.remotes {
+		remote.Start()
 	}
-	for {
-		command := <-h.command
-		switch command.Method {
-		case IPC_LOG:
-			Logger.Println("Hub.MainLoop: Hello!")
-		default:
-			Logger.Fatalln("Hub.MainLoop: unknown command")
-		}
-	}
+	h.wg.Wait()
 }
