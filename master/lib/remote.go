@@ -13,7 +13,8 @@ type Remote struct {
 	manager    *common.RPCPairManager
 	transports []*Transport
 
-	name string
+	name     string
+	incoming chan common.BLTradeDTO
 }
 
 func CreateRemote(hub *Hub, name string) *Remote {
@@ -24,6 +25,7 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.hub = hub
 	r.manager = common.CreateRPCPairManager(configPath)
 	r.name = name
+	r.incoming = make(chan common.BLTradeDTO)
 	return r
 }
 
@@ -67,6 +69,25 @@ func (r *Remote) MainLoop() {
 	}
 }
 
+func (r *Remote) RecvLoop() {
+	for {
+		dto := <-r.incoming
+		if dto.Mix == -1 {
+			// Command
+		} else {
+			// Data
+			var trade common.BLTrade
+			common.UnmarshalTradeDTO(&dto, &trade)
+		}
+	}
+}
+
 func (r *Remote) Start() {
 	go r.MainLoop()
+}
+
+func (r *Remote) Subscribe(stock int32, etag int32) (<-chan common.BLTrade, bool) {
+	ch := make(chan common.BLTrade)
+	// TODO
+	return ch, true
 }

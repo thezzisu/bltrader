@@ -12,12 +12,13 @@ import (
 )
 
 type Transport struct {
-	hub      *Hub
-	remote   *Remote
-	pair     common.RPCPair
-	die      chan struct{}
-	dieOnce  sync.Once
-	incoming chan net.Conn
+	hub          *Hub
+	remote       *Remote
+	pair         common.RPCPair
+	die          chan struct{}
+	dieOnce      sync.Once
+	incomingConn chan net.Conn
+	outgoingData chan common.BLOrderDTO
 }
 
 func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
@@ -27,7 +28,8 @@ func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
 	t.pair = pair
 
 	t.die = make(chan struct{})
-	t.incoming = make(chan net.Conn)
+	t.incomingConn = make(chan net.Conn)
+	t.outgoingData = make(chan common.BLOrderDTO)
 
 	return t
 }
@@ -95,17 +97,22 @@ func (t *Transport) AcceptLoop() {
 				break
 			}
 			Logger.Printf("Transport accepted connection from %s", conn.RemoteAddr().String())
-			t.incoming <- conn
+			t.incomingConn <- conn
 		}
 		listener.Close()
 	}
+	close(t.incomingConn)
+	close(t.outgoingData)
 }
 
 func (t *Transport) HandleLoop() {
 	var lastConn net.Conn
 	for !t.IsClosed() {
 		select {
-		case newConn := <-t.incoming:
+		case newConn, ok := <-t.incomingConn:
+			if !ok {
+				return
+			}
 			if lastConn != nil {
 				lastConn.Close()
 			}
@@ -122,9 +129,29 @@ func (t *Transport) HandleLoop() {
 }
 
 func (t *Transport) RecvLoop(conn net.Conn) {
-	//
+	for {
+		var dto common.BLTradeDTO
+		err := binary.Read(conn, binary.LittleEndian, &dto)
+		if err != nil {
+			Logger.Println("Transport.RecvLoop", err)
+			conn.Close()
+			return
+		}
+		t.remote.incoming <- dto
+	}
 }
 
 func (t *Transport) SendLoop(conn net.Conn) {
-	//
+	for {
+		dto, ok := <-t.outgoingData
+		if !ok {
+			return
+		}
+		err := binary.Write(conn, binary.LittleEndian, dto)
+		if err != nil {
+			Logger.Println("Transport.SendLoop", err)
+			conn.Close()
+			return
+		}
+	}
 }
