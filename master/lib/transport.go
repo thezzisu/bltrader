@@ -18,7 +18,6 @@ type Transport struct {
 	die          chan struct{}
 	dieOnce      sync.Once
 	incomingConn chan net.Conn
-	outgoingData chan common.BLOrderDTO
 }
 
 func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
@@ -29,7 +28,6 @@ func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
 
 	t.die = make(chan struct{})
 	t.incomingConn = make(chan net.Conn)
-	t.outgoingData = make(chan common.BLOrderDTO)
 
 	return t
 }
@@ -102,7 +100,6 @@ func (t *Transport) AcceptLoop() {
 		listener.Close()
 	}
 	close(t.incomingConn)
-	close(t.outgoingData)
 }
 
 func (t *Transport) HandleLoop() {
@@ -137,21 +134,14 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 			conn.Close()
 			return
 		}
-		t.remote.incoming <- dto
+		t.remote.incoming <- &dto
 	}
 }
 
 func (t *Transport) SendLoop(conn net.Conn) {
-	for {
-		dto, ok := <-t.outgoingData
-		if !ok {
-			return
-		}
-		err := binary.Write(conn, binary.LittleEndian, dto)
-		if err != nil {
-			Logger.Println("Transport.SendLoop", err)
-			conn.Close()
-			return
-		}
-	}
+	//
+}
+
+func (t *Transport) Subscribe(stock int32, etag int32) {
+	//
 }

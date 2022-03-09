@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"time"
 	"unsafe"
 
 	"github.com/thezzisu/bltrader/common"
@@ -30,7 +31,6 @@ func init() {
 type StockInfo struct {
 	StockId int32
 
-	hooks  []common.BLHook
 	cacheL []common.BLOrder
 	chunkL int
 	cacheR []common.BLOrder
@@ -59,12 +59,20 @@ func (si *StockInfo) Slide() {
 	}
 }
 
+func (si *StockInfo) Seek(etag int32) {
+	// TODO
+}
+
+func (si *StockInfo) Next() *common.BLOrder {
+	// TODO
+	return nil
+}
+
 func CreateStockInfo(stockId int32) *StockInfo {
 	if ChunkCount == 1 {
 		// Since we only have one chunk, just load it as cacheR
 		return &StockInfo{
 			StockId: stockId,
-			hooks:   LoadHooks(stockId),
 			cacheL:  make([]common.BLOrder, 0),
 			chunkL:  0,
 			cacheR:  LoadOrderChunk(stockId, 0),
@@ -73,7 +81,6 @@ func CreateStockInfo(stockId int32) *StockInfo {
 	} else {
 		return &StockInfo{
 			StockId: stockId,
-			hooks:   LoadHooks(stockId),
 			cacheL:  LoadOrderChunk(stockId, 0),
 			chunkL:  0,
 			cacheR:  LoadOrderChunk(stockId, 1),
@@ -83,18 +90,25 @@ func CreateStockInfo(stockId int32) *StockInfo {
 }
 
 type StockOrderDep struct {
-	Arg int32
-	Ch  <-chan int32
+	arg int32
+	val int32
+	ch  chan struct{}
+}
+
+type StockSubscribeRequest struct {
+	etag int32
+	ch   chan *common.BLOrder
 }
 
 type StockHandler struct {
 	hub        *Hub
 	remote     *Remote
 	stockId    int32
-	info       *StockInfo
+	hooks      []common.BLHook
 	dataDir    string
-	interested map[int32][]chan int32
-	deps       map[int32]StockOrderDep
+	interested map[int32][]*StockOrderDep
+	deps       map[int32]*StockOrderDep
+	subscribes chan StockSubscribeRequest
 }
 
 func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
@@ -108,37 +122,94 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	sh.hub = hub
 	sh.remote = hub.remotes[StockMap[stockId]]
 	sh.stockId = stockId
-	sh.info = CreateStockInfo(stockId)
+	sh.hooks = LoadHooks(stockId)
 	sh.dataDir = dataDir
-	sh.interested = make(map[int32][]chan int32)
-	sh.deps = make(map[int32]StockOrderDep)
+	sh.interested = make(map[int32][]*StockOrderDep)
+	sh.deps = make(map[int32]*StockOrderDep)
 
 	return sh
 }
 
-func (sh *StockHandler) Interest(tradeId int32) <-chan int32 {
+func (sh *StockHandler) Interest(tradeId int32, dep *StockOrderDep) {
 	if _, ok := sh.interested[tradeId]; !ok {
-		sh.interested[tradeId] = make([]chan int32, 0)
+		sh.interested[tradeId] = make([]*StockOrderDep, 0)
 	}
-	// Make chan buffered to avoid blocking
-	ch := make(chan int32, 1)
-	sh.interested[tradeId] = append(sh.interested[tradeId], ch)
-	return ch
+	sh.interested[tradeId] = append(sh.interested[tradeId], dep)
 }
 
 func (sh *StockHandler) InitDeps() {
-	for _, hook := range sh.info.hooks {
-		ch := sh.hub.stocks[hook.TargetStkCode].Interest(hook.TargetTradeIdx)
-		sh.deps[hook.SelfOrderId] = StockOrderDep{
-			Arg: hook.Arg,
-			Ch:  ch,
+	for _, hook := range sh.hooks {
+		dep := StockOrderDep{
+			arg: hook.Arg,
+			ch:  make(chan struct{}),
+		}
+		sh.deps[hook.SelfOrderId] = &dep
+		sh.hub.stocks[hook.TargetStkCode].Interest(hook.TargetTradeIdx, &dep)
+	}
+}
+
+func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrder {
+	ch := make(chan *common.BLOrder)
+	sh.subscribes <- StockSubscribeRequest{etag: etag, ch: ch}
+	return ch
+}
+
+func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
+	if deps, ok := sh.interested[tradeId]; ok {
+		for _, dep := range deps {
+			dep.val = trade.Volume
+			close(dep.ch)
 		}
 	}
 }
 
-func (sh *StockHandler) Subscribe(etag int32) (<-chan common.BLOrder, bool) {
-	// TODO
-	return nil, false
+func (sh *StockHandler) SendLoop() {
+	ch := make(chan *common.BLOrder)
+	info := CreateStockInfo(sh.stockId)
+
+nextOrder:
+	for {
+		order := info.Next()
+		if order == nil {
+			// Send finished
+			req := <-sh.subscribes
+			fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
+			close(ch)
+			ch = req.ch
+			info.Seek(req.etag)
+			continue
+		}
+
+		if dep, ok := sh.deps[order.StkCode]; ok {
+			// This order is hooked
+			select {
+			case req := <-sh.subscribes:
+				// Handle new subscriber
+				fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
+				close(ch)
+				ch = req.ch
+				info.Seek(req.etag)
+				continue nextOrder
+
+			case <-dep.ch:
+				// Depdenency is ready
+				if dep.val > dep.arg {
+					// Continue for next order
+					continue
+				}
+			}
+		}
+
+		select {
+		case req := <-sh.subscribes:
+			// Handle new subscriber
+			fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
+			close(ch)
+			ch = req.ch
+			info.Seek(req.etag)
+		case ch <- order:
+		}
+	}
 }
 
 func (sh *StockHandler) RecvLoop() {
@@ -152,29 +223,31 @@ func (sh *StockHandler) RecvLoop() {
 	}
 	writer := bufio.NewWriter(f)
 	lastId := int32(0)
+subscribe:
 	for {
-		ch, ok := sh.remote.Subscribe(sh.stockId, lastId)
-		if !ok {
-			break
-		}
+		ch := sh.remote.Subscribe(sh.stockId, lastId)
 		for {
-			trade, ok := <-ch
-			if !ok {
-				break
-			}
-			lastId++
-			if _, ok := sh.interested[lastId]; ok {
-				// Trade is interested
-				cbs := sh.interested[lastId]
-				for _, cb := range cbs {
-					cb <- trade.Volume
+			// TODO add configuration for this timeout
+			timer := time.NewTimer(time.Second * 10)
+			select {
+			case trade, ok := <-ch:
+				if !ok {
+					break
 				}
+				if trade.AskId == -1 {
+					break subscribe
+				}
+				lastId++
+				sh.TradeHook(lastId, trade)
+				binary.Write(writer, nativeEndian, sh.stockId+1)
+				binary.Write(writer, nativeEndian, trade.BidId)
+				binary.Write(writer, nativeEndian, trade.AskId)
+				binary.Write(writer, nativeEndian, trade.Price)
+				binary.Write(writer, nativeEndian, trade.Volume)
+			case <-timer.C:
+				Logger.Printf("StockHandler[%d].RecvLoop timeout\n", sh.stockId)
+				continue subscribe
 			}
-			binary.Write(writer, nativeEndian, sh.stockId+1)
-			binary.Write(writer, nativeEndian, trade.BidId)
-			binary.Write(writer, nativeEndian, trade.AskId)
-			binary.Write(writer, nativeEndian, trade.Price)
-			binary.Write(writer, nativeEndian, trade.Volume)
 		}
 	}
 	writer.Flush()
@@ -184,5 +257,6 @@ func (sh *StockHandler) RecvLoop() {
 
 func (sh *StockHandler) Start() {
 	sh.hub.wg.Add(1)
+	go sh.SendLoop()
 	go sh.RecvLoop()
 }

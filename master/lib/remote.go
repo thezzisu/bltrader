@@ -8,13 +8,19 @@ import (
 	"github.com/thezzisu/bltrader/common"
 )
 
+type RemoteSubscribeRequest struct {
+	stock int32
+	ch    chan *common.BLTrade
+}
+
 type Remote struct {
 	hub        *Hub
 	manager    *common.RPCPairManager
 	transports []*Transport
-
-	name     string
-	incoming chan common.BLTradeDTO
+	name       string
+	incoming   chan *common.BLTradeDTO
+	subscribes chan RemoteSubscribeRequest
+	command    chan int32
 }
 
 func CreateRemote(hub *Hub, name string) *Remote {
@@ -25,7 +31,8 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.hub = hub
 	r.manager = common.CreateRPCPairManager(configPath)
 	r.name = name
-	r.incoming = make(chan common.BLTradeDTO)
+	r.incoming = make(chan *common.BLTradeDTO)
+	r.subscribes = make(chan RemoteSubscribeRequest)
 	return r
 }
 
@@ -69,15 +76,48 @@ func (r *Remote) MainLoop() {
 	}
 }
 
+func (r *Remote) Allocate(stock int32, etag int32) {
+	// TODO
+}
+
 func (r *Remote) RecvLoop() {
+	pending := make(map[int32]RemoteSubscribeRequest)
+	subscription := make(map[int32]chan *common.BLTrade)
+	id := int32(0)
 	for {
-		dto := <-r.incoming
-		if dto.Mix == -1 {
-			// Command
-		} else {
-			// Data
-			var trade common.BLTrade
-			common.UnmarshalTradeDTO(&dto, &trade)
+		select {
+		case dto := <-r.incoming:
+			if dto.Mix == -1 {
+				// Command
+				// Use AskId as command type
+				switch dto.AskId {
+				case 0:
+					// Subscribe Response
+					// Use BidId as id
+					if req, ok := pending[dto.BidId]; ok {
+						subscription[req.stock] = req.ch
+						delete(pending, dto.BidId)
+					}
+
+				case 1:
+					// Subscribe Request
+					// Use BidId as StkCode, Price as etag
+					r.Allocate(dto.BidId, dto.Price)
+				}
+			} else {
+				// Data
+				var trade common.BLTrade
+				common.UnmarshalTradeDTO(dto, &trade)
+				if ch, ok := subscription[trade.StkCode]; ok {
+					ch <- &trade
+				}
+			}
+
+		case req := <-r.subscribes:
+			delete(subscription, req.stock)
+			id++
+			pending[id] = req
+			// TODO send subscribe request
 		}
 	}
 }
@@ -86,8 +126,8 @@ func (r *Remote) Start() {
 	go r.MainLoop()
 }
 
-func (r *Remote) Subscribe(stock int32, etag int32) (<-chan common.BLTrade, bool) {
-	ch := make(chan common.BLTrade)
-	// TODO
-	return ch, true
+func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLTrade {
+	ch := make(chan *common.BLTrade)
+	r.subscribes <- RemoteSubscribeRequest{stock: stock, ch: ch}
+	return ch
 }
