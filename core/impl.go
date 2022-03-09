@@ -17,6 +17,10 @@ type ShortOrder struct {
 	Volume  int32
 }
 
+func (so *ShortOrder) String() string {
+	return fmt.Sprintf("Short Order %d %f %d\n", so.OrderId, so.Price, so.Volume)
+}
+
 type BLRunner struct {
 	buyTree    *treemap.Map
 	sellTree   *treemap.Map
@@ -324,12 +328,55 @@ func (blrunner *BLRunner) InsertOrder(rbt *treemap.Map, order *ShortOrder) {
 	}
 }
 
+func (so *ShortOrder) Encode() []byte {
+	buf := bytes.NewBuffer(nil)
+	err1 := binary.Write(buf, binary.LittleEndian, so.OrderId)
+	err2 := binary.Write(buf, binary.LittleEndian, so.Price)
+	err3 := binary.Write(buf, binary.LittleEndian, so.Volume)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return nil
+	}
+	return buf.Bytes()
+}
+
+func (so *ShortOrder) Decode(data []byte) {
+	buf := bytes.NewBuffer(data)
+	_ = binary.Read(buf, binary.LittleEndian, &so.OrderId)
+	_ = binary.Read(buf, binary.LittleEndian, &so.Price)
+	_ = binary.Read(buf, binary.LittleEndian, &so.Volume)
+}
+
+func (so *ShortOrder) Read(rFile *os.File) bool {
+	// return true if file reaches eof
+	buf := make([]byte, 16)
+	if _, err := rFile.Read(buf); err != nil {
+		return true
+	}
+	rb := bytes.NewReader(buf)
+	_, _ = rb.Read(buf)
+	so.Decode(buf)
+	return false
+}
+
+func (so *ShortOrder) Write(wFile *os.File) {
+	_, _ = wFile.Write(so.Encode())
+}
+
+/*
+
+Write the _Volume in the first order
+order.Volume
+order.OrderId = order.Price = 0
+
+*/
+
 func (blrunner *BLRunner) Load(lower float64, upper float64) {
 	blrunner.buyTree = treemap.NewWith(byPriceDescend)
 	blrunner.sellTree = treemap.NewWith(byPriceAscend)
 	blrunner.lowerPrice = lower
 	blrunner.upperPrice = upper
 	blrunner.queuePool = &sync.Pool{New: func() interface{} { return new(LinkNode) }}
+
 	_, errB := os.Stat("./buy_cache")
 	_, errS := os.Stat("./sell_cache")
 	noB, noS := os.IsNotExist(errB), os.IsNotExist(errS)
@@ -337,46 +384,29 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 		blrunner.buyVolume, blrunner.sellVolume = 0, 0
 		return
 	}
-	//return
 	bFile, _ := os.OpenFile("./buy_cache", os.O_RDONLY, 0777)
 	sFile, _ := os.OpenFile("./sell_cache", os.O_RDONLY, 0777)
-	buf := make([]byte, 4)
-	rb := bytes.NewReader(buf)
-	if _, err := bFile.Read(buf); err == nil {
-		binary.Read(rb, binary.LittleEndian, &blrunner.buyVolume)
-	} else {
-		panic("Cache corrupt")
-	}
-	rb.Reset(buf)
-	if _, err := sFile.Read(buf); err == nil {
-		binary.Read(rb, binary.LittleEndian, &blrunner.sellVolume)
-	} else {
-		panic("Cache corrupt")
-	}
-	blrunner.buyVolume--
-	blrunner.sellVolume--
-	rb.Reset(buf)
-	buf = make([]byte, 28)
-	for {
-		if _, err := bFile.Read(buf); err == nil {
-			order := new(ShortOrder)
-			binary.Read(rb, binary.LittleEndian, &order)
-			blrunner.InsertOrder(blrunner.buyTree, order)
-			rb.Reset(buf)
-		} else {
-			break
+
+	ReadCache := func(rFile *os.File, sVolume *int32, tree *treemap.Map) {
+		var order ShortOrder
+		end := order.Read(rFile)
+		if end {
+			return
+		}
+		*sVolume = order.Volume
+		fmt.Printf("sVolume %d\n", *sVolume)
+		for {
+			end = order.Read(rFile)
+			if end {
+				return
+			}
+			blrunner.InsertOrder(tree, &order)
+			fmt.Println(order.String())
 		}
 	}
-	for {
-		if _, err := sFile.Read(buf); err == nil {
-			order := new(ShortOrder)
-			binary.Read(rb, binary.LittleEndian, &order)
-			blrunner.InsertOrder(blrunner.sellTree, order)
-			rb.Reset(buf)
-		} else {
-			break
-		}
-	}
+	ReadCache(bFile, &blrunner.buyVolume, blrunner.buyTree)
+	ReadCache(sFile, &blrunner.sellVolume, blrunner.sellTree)
+
 	bFile.Close()
 	sFile.Close()
 }
@@ -387,41 +417,24 @@ func (blrunner *BLRunner) Dump() {
 	if errB != nil || errS != nil {
 		panic("Failed to write cache")
 	}
-	fmt.Printf("[Dump] buy %d sell %d\n", blrunner.buyVolume, blrunner.sellVolume)
-	wb := new(bytes.Buffer)
-	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume)
-	_, _ = bFile.Write(wb.Bytes())
-	wb.Reset()
-	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume+1)
-	_, _ = bFile.Write(wb.Bytes())
-	wb.Reset()
-	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume+1)
-	_, _ = bFile.Write(wb.Bytes())
-	wb.Reset()
-	_ = binary.Write(wb, binary.LittleEndian, blrunner.buyVolume+1)
-	_, _ = bFile.Write(wb.Bytes())
-	wb.Reset()
-	_ = binary.Write(wb, binary.LittleEndian, blrunner.sellVolume+1)
-	_, _ = sFile.Write(wb.Bytes())
-	wb.Reset()
-	it := blrunner.buyTree.Iterator()
-	for it.Next() {
-		u := it.Value().(*Queue).head
-		for ; u != nil; u = u.next {
-			_ = binary.Write(wb, binary.LittleEndian, u.order)
-			_, _ = bFile.Write(wb.Bytes())
-			wb.Reset()
+
+	fmt.Printf("[Dump] buy %d sell %d\n", blrunner.buyVolume, blrunner.sellVolume) // debug output
+
+	WriteCache := func(wFile *os.File, sVolume int32, tree *treemap.Map) {
+		var order ShortOrder
+		order.Volume = sVolume
+		order.Write(wFile)
+		it := tree.Iterator()
+		for it.Next() {
+			u := it.Value().(*Queue).head
+			for ; u != nil; u = u.next {
+				u.order.Write(wFile)
+			}
 		}
 	}
-	it = blrunner.sellTree.Iterator()
-	for it.Next() {
-		u := it.Value().(*Queue).head
-		for ; u != nil; u = u.next {
-			_ = binary.Write(wb, binary.LittleEndian, u.order)
-			_, _ = sFile.Write(wb.Bytes())
-			wb.Reset()
-		}
-	}
+	WriteCache(bFile, blrunner.buyVolume, blrunner.buyTree)
+	WriteCache(sFile, blrunner.sellVolume, blrunner.sellTree)
+
 	bFile.Close()
 	sFile.Close()
 }
