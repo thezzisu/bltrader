@@ -1,99 +1,235 @@
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/thezzisu/bltrader/common"
 	"github.com/thezzisu/bltrader/core"
 )
 
-// #include "bf.h"
-import "C"
+/*
+trade_i
+	trade_num int32
+	bid int32	ask int32	price float64	volume int32
+*/
+
+/*
+order_1 & order_2
+	order_num int32
+	orderid int32	direction int32	type int32	price float64	volume int32
+*/
+
+/*
+hook
+	order_num int32	stkcode	int32	trade_id int32	volarg int32
+*/
+
+func ReadLine(br *bufio.Reader) (string, bool) {
+	sc, err := br.ReadString('\n')
+	if err != nil {
+		return "", true
+	}
+	return sc, false
+}
 
 func main() {
-	ordn := 9990
-	tran := 5541
-	hn := 56
-	orders := make([]common.BLOrder, ordn)
-	for i := 0; i < ordn; i++ {
-		orders[i] = common.BLOrder{StkCode: 0, OrderId: int32(C.int(C.so[i])), Direction: int32(C.int(C.sd[i])), Type: int32(C.int(C.st[i])), Price: float64(C.double(C.sp[i])), Volume: int32(C.int(C.sv[i]))}
-	}
-	atrade := make([]common.BLTrade, tran)
-	for i := 0; i < tran; i++ {
-		atrade[i] = common.BLTrade{StkCode: 0, BidId: int32(C.int(C.tb[i])), AskId: int32(C.int(C.ta[i])), Price: float64(C.double(C.tp[i])), Volume: int32(C.int(C.tv[i]))}
-	}
-	forb := []int32{5036, 5235, 5248, 5283, 5314, 5659, 5755, 5829, 5852, 6096, 6151, 6230, 6611, 6677, 6706, 6714, 6858, 6881, 6883, 6951, 6966, 7170, 7330, 7403, 7410, 7423, 7471, 7647, 7670, 7697, 7849, 7912, 7952, 7992, 8346, 8386, 8580, 8609, 8632, 8659, 8668, 8764, 8928, 8940, 8951, 8963, 8995, 9055, 9072, 9151, 9191, 9362, 9410, 9438, 9816, 9847}
-	fob := make(map[int32]bool)
-	for i := 0; i < hn; i++ {
-		fob[forb[i]] = true
-	}
-	btrade := make([]common.BLTrade, 0)
-	blr := new(core.BLRunner)
-	t1 := time.Now()
-	bp := 5000
-	isdp := false
-	func(breakpoint int, isDump bool) {
-		blr.Load(-10000.0, 10000.0)
-		if isDump {
-			for i := 0; i < ordn; i++ {
-				if i == breakpoint && i > 0 {
-					blr.Dump()
-					fmt.Printf("Succeeded in Dump,the trade size = %d\n", len(btrade))
+	datadir := "./data/"
+	var orders [][]common.BLOrder
+	orders = make([][]common.BLOrder, 2)
+	aorder := make([]common.BLOrder, 0)
+	order_size := make([]int, 2)
+	var aosize int
+	var trades [][]common.BLTrade
+	trades = make([][]common.BLTrade, 10)
+	trade_size := make([]int, 10)
+	hooks := make([]common.BLHook, 0)
+	var hook_size int32
+	timep1 := time.Now()
+	var br *bufio.Reader
+	func() {
+		for i := 0; i < 2; i++ {
+			orders[i] = make([]common.BLOrder, 0)
+			orderFile, err := os.OpenFile(datadir+"order_"+strconv.FormatInt(int64(i+1), 10), os.O_RDONLY, 0777)
+			if err != nil {
+				panic("Failed to read order file")
+			}
+			br = bufio.NewReader(orderFile)
+			line, end := ReadLine(br)
+			if end {
+				panic("Order file corrupted")
+			}
+			_, _ = fmt.Sscanf(line, "%d", &order_size[i])
+			cnt := 0
+			for {
+				line, end = ReadLine(br)
+				if end {
+					break
 				}
-				if _, ok := fob[orders[i].OrderId]; ok {
+				var od common.BLOrder
+				_, _ = fmt.Sscanf(line, "%d%d%d%f%d", &od.OrderId, &od.Direction, &od.Type, &od.Price, &od.Volume)
+				orders[i] = append(orders[i], od)
+				cnt++
+			}
+			orderFile.Close()
+		}
+		aosize = order_size[0] + order_size[1]
+		ii, jj := 0, 0
+		for ii < order_size[0] && jj < order_size[1] {
+			if orders[0][ii].OrderId < orders[1][jj].OrderId {
+				aorder = append(aorder, orders[0][ii])
+				ii++
+			} else {
+				aorder = append(aorder, orders[1][jj])
+				jj++
+			}
+		}
+		for ; ii < order_size[0]; ii++ {
+			aorder = append(aorder, orders[0][ii])
+		}
+		for ; jj < order_size[1]; jj++ {
+			aorder = append(aorder, orders[1][jj])
+		}
+	}()
+	func() {
+		for i := 0; i < 10; i++ {
+			trades[i] = make([]common.BLTrade, 0)
+			tradeFile, err := os.OpenFile(datadir+"trade_"+strconv.FormatInt(int64(i+1), 10), os.O_RDONLY, 0777)
+			if err != nil {
+				panic("Failed to read trade file")
+			}
+			br = bufio.NewReader(tradeFile)
+			line, end := ReadLine(br)
+			if end {
+				panic("Trade file corrupted")
+			}
+			_, _ = fmt.Sscanf(line, "%d", &trade_size[i])
+			for {
+				line, end = ReadLine(br)
+				if end {
+					break
+				}
+				var tr common.BLTrade
+				_, _ = fmt.Sscanf(line, "%d%d%f%d", &tr.BidId, &tr.AskId, &tr.Price, &tr.Volume)
+				trades[i] = append(trades[i], tr)
+			}
+			tradeFile.Close()
+		}
+	}()
+	func() {
+		hookFile, err := os.OpenFile(datadir+"hook", os.O_RDONLY, 0777)
+		if err != nil {
+			panic("Failed to read hook file")
+		}
+		br = bufio.NewReader(hookFile)
+		line, end := ReadLine(br)
+		if end {
+			panic("Hook file corrupted")
+		}
+		_, _ = fmt.Sscanf(line, "%d", &hook_size)
+		for {
+			line, end = ReadLine(br)
+			if end {
+				break
+			}
+			var hk common.BLHook
+			_, _ = fmt.Sscanf(line, "%d%d%d%d", &hk.SelfOrderId, &hk.TargetStkCode, &hk.TargetTradeIdx, &hk.Arg)
+			hooks = append(hooks, hk)
+		}
+		hookFile.Close()
+	}()
+	hooked := make(map[int32]bool)
+	func() {
+		for _, hook := range hooks {
+			if trades[hook.TargetStkCode-1][hook.TargetTradeIdx-1].Volume > hook.Arg {
+				hooked[hook.SelfOrderId] = true
+			}
+		}
+	}()
+	timep2 := time.Now()
+	position := flag.Int("pos", 0, "The position of orders to start.")
+	isdump := flag.Bool("dump", false, "Set isdump as true to activate dump at the given position.")
+	isclear := flag.Bool("clear", false, "Set isclear as true to clear the cache file.")
+	trade_offset := flag.Int("offset", 0, "Start from anstrade[offset] when in comparison.")
+	stk_code := flag.Int("stkcode", 0, "The stock id you are matching.")
+	flag.Parse()
+	if *isclear {
+		_ = os.Remove("./buy_cache")
+		_ = os.Remove("./sell_cache")
+	}
+	result := make([]common.BLTrade, 0)
+	lower_price := -10000.0
+	upper_price := 10000.0
+	func() {
+		blr := new(core.BLRunner)
+		blr.Load(lower_price, upper_price)
+		if *isdump {
+			for i := 0; i < aosize; i++ {
+				if i == *position {
+					fmt.Printf("[Dump] Succeeded in Dump,the trade offset = %d\n", len(result))
+					blr.Dump()
+				}
+				if _, ok := hooked[aorder[i].OrderId]; ok {
 					continue
 				}
-				btrade = append(btrade, blr.Dispatch(&orders[i])...)
+				result = append(result, blr.Dispatch(&aorder[i])...)
 			}
 		} else {
-			for i := breakpoint; i < ordn; i++ {
-				if _, ok := fob[orders[i].OrderId]; ok {
+			for i := *position; i < aosize; i++ {
+				if _, ok := hooked[aorder[i].OrderId]; ok {
 					continue
 				}
-				btrade = append(btrade, blr.Dispatch(&orders[i])...)
+				result = append(result, blr.Dispatch(&aorder[i])...)
 			}
 		}
-	}(bp, isdp)
-	t2 := time.Now()
-	toffset := 2991
-	if isdp {
-		toffset = 0
-	}
-	fmt.Printf("main part's time %d (ms)\n", t2.Sub(t1).Milliseconds())
-	fmt.Printf("AnsTrades %d,MyTrades %d\n", tran, len(btrade))
-	tnn := tran
-	if tnn > len(btrade)+toffset {
-		tnn = len(btrade) + toffset
-	}
-	i := 0
-	for i = toffset; i < tnn; i++ {
-		if atrade[i].BidId != btrade[i-toffset].BidId {
-			fmt.Printf("Differ At: %d\n", i)
-			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i-toffset].String())
-			break
+	}()
+	timep3 := time.Now()
+	func() {
+		var i int
+		fmt.Printf("AnsTrades %d,MyTrades %d\n", trade_size[*stk_code], len(result))
+		tnn := trade_size[*stk_code]
+		if tnn > len(result)+*trade_offset {
+			tnn = len(result) + *trade_offset
 		}
-		if atrade[i].AskId != btrade[i-toffset].AskId {
-			fmt.Printf("Differ At: %d\n", i)
-			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i-toffset].String())
-			break
+		for i = *trade_offset; i < tnn; i++ {
+			if trades[*stk_code][i].BidId != result[i-*trade_offset].BidId {
+				fmt.Printf("Differ At: %d\n", i)
+				fmt.Println(trades[*stk_code][i].String())
+				fmt.Println(result[i-*trade_offset].String())
+				break
+			}
+			if trades[*stk_code][i].AskId != result[i-*trade_offset].AskId {
+				fmt.Printf("Differ At: %d\n", i)
+				fmt.Println(trades[*stk_code][i].String())
+				fmt.Println(result[i-*trade_offset].String())
+				break
+			}
+			if trades[*stk_code][i].Price != result[i-*trade_offset].Price {
+				fmt.Printf("Differ At: %d\n", i)
+				fmt.Println(trades[*stk_code][i].String())
+				fmt.Println(result[i-*trade_offset].String())
+				break
+			}
+			if trades[*stk_code][i].Volume != result[i-*trade_offset].Volume {
+				fmt.Printf("Differ At: %d\n", i)
+				fmt.Println(trades[*stk_code][i].String())
+				fmt.Println(result[i-*trade_offset].String())
+				break
+			}
 		}
-		if atrade[i].Price != btrade[i-toffset].Price {
-			fmt.Printf("Differ At: %d\n", i)
-			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i-toffset].String())
-			break
+		if i == tnn {
+			fmt.Println("All Correct!")
 		}
-		if atrade[i].Volume != btrade[i-toffset].Volume {
-			fmt.Printf("Differ At: %d\n", i)
-			fmt.Println(atrade[i].String())
-			fmt.Println(btrade[i-toffset].String())
-			break
-		}
-	}
-	if i == tnn {
-		fmt.Println("All Correct!")
-	}
+	}()
+	timep4 := time.Now()
+	func() {
+		fmt.Printf("Load data time %d ms\n", timep2.Sub(timep1).Milliseconds())
+		fmt.Printf("Main time %d ms\n", timep3.Sub(timep2).Milliseconds())
+		fmt.Printf("Verification time %d ms\n", timep4.Sub(timep3).Milliseconds())
+	}()
+	//verify
 }

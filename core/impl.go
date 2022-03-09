@@ -401,7 +401,6 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 				return
 			}
 			blrunner.InsertOrder(tree, &order)
-			fmt.Println(order.String())
 		}
 	}
 	ReadCache(bFile, &blrunner.buyVolume, blrunner.buyTree)
