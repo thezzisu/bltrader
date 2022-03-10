@@ -4,23 +4,27 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
+	"sync/atomic"
 
 	"github.com/thezzisu/bltrader/common"
 )
 
 type RemoteSubscribeRequest struct {
 	stock int32
+	etag  int32
 	ch    chan *common.BLTrade
 }
 
 type Remote struct {
-	hub        *Hub
-	manager    *common.RPCPairManager
-	transports []*Transport
-	name       string
-	incoming   chan *common.BLTradeDTO
-	subscribes chan RemoteSubscribeRequest
-	command    chan int32
+	hub            *Hub
+	manager        *common.RPCPairManager
+	transports     []*Transport
+	transportMutex sync.RWMutex
+	name           string
+	incoming       chan *common.BLTradeDTO
+	subscribes     chan RemoteSubscribeRequest
+	command        chan *common.BLOrderDTO
 }
 
 func CreateRemote(hub *Hub, name string) *Remote {
@@ -37,6 +41,9 @@ func CreateRemote(hub *Hub, name string) *Remote {
 }
 
 func (r *Remote) Reload() {
+	r.transportMutex.Lock()
+	defer r.transportMutex.Unlock()
+
 	pairs := r.manager.GetPairs()
 
 	n := len(r.transports)
@@ -76,33 +83,48 @@ func (r *Remote) MainLoop() {
 	}
 }
 
-func (r *Remote) Allocate(stock int32, etag int32) {
-	// TODO
+func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
+	r.transportMutex.RLock()
+	defer r.transportMutex.RUnlock()
+	if len(r.transports) == 0 {
+		// Since we do not have any transports,
+		// just do not allocate at all!
+		return
+	}
+	bestK, bestV := 0, atomic.LoadUint32(&r.transports[0].subscriptionCount)
+	for i := 1; i < len(r.transports); i++ {
+		v := atomic.LoadUint32(&r.transports[i].subscriptionCount)
+		if v > bestV {
+			bestK, bestV = i, v
+		}
+	}
+	r.transports[bestK].Allocate(stock, etag, handshake)
 }
 
 func (r *Remote) RecvLoop() {
 	pending := make(map[int32]RemoteSubscribeRequest)
 	subscription := make(map[int32]chan *common.BLTrade)
-	id := int32(0)
+	handshake := int32(0)
 	for {
 		select {
 		case dto := <-r.incoming:
-			if dto.Mix == -1 {
+			if common.IsCmd(dto.Mix) {
+				cmd, payload := common.DecodeCmd(dto.Mix)
 				// Command
 				// Use AskId as command type
-				switch dto.AskId {
-				case 0:
+				switch cmd {
+				case common.CmdSubReq:
+					// Subscribe Request
+					// Use payload as StkId, AskId as handshake, Price as etag
+					r.Allocate(payload, dto.Price, dto.AskId)
+
+				case common.CmdSubRes:
 					// Subscribe Response
-					// Use BidId as id
+					// Use BidId as handshake
 					if req, ok := pending[dto.BidId]; ok {
 						subscription[req.stock] = req.ch
 						delete(pending, dto.BidId)
 					}
-
-				case 1:
-					// Subscribe Request
-					// Use BidId as StkCode, Price as etag
-					r.Allocate(dto.BidId, dto.Price)
 				}
 			} else {
 				// Data
@@ -115,19 +137,24 @@ func (r *Remote) RecvLoop() {
 
 		case req := <-r.subscribes:
 			delete(subscription, req.stock)
-			id++
-			pending[id] = req
-			// TODO send subscribe request
+			handshake++
+			pending[handshake] = req
+			r.command <- &common.BLOrderDTO{
+				Mix:     common.EncodeCmd(common.CmdSubReq, req.stock),
+				OrderId: req.etag,
+				Price:   handshake,
+			}
 		}
 	}
 }
 
 func (r *Remote) Start() {
 	go r.MainLoop()
+	go r.RecvLoop()
 }
 
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLTrade {
 	ch := make(chan *common.BLTrade)
-	r.subscribes <- RemoteSubscribeRequest{stock: stock, ch: ch}
+	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, ch: ch}
 	return ch
 }

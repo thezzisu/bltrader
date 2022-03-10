@@ -97,7 +97,7 @@ type StockOrderDep struct {
 
 type StockSubscribeRequest struct {
 	etag int32
-	ch   chan *common.BLOrder
+	ch   chan *common.BLOrderDTO
 }
 
 type StockHandler struct {
@@ -148,8 +148,8 @@ func (sh *StockHandler) InitDeps() {
 	}
 }
 
-func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrder {
-	ch := make(chan *common.BLOrder)
+func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
+	ch := make(chan *common.BLOrderDTO)
 	sh.subscribes <- StockSubscribeRequest{etag: etag, ch: ch}
 	return ch
 }
@@ -164,7 +164,7 @@ func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
 }
 
 func (sh *StockHandler) SendLoop() {
-	ch := make(chan *common.BLOrder)
+	ch := make(chan *common.BLOrderDTO)
 	info := CreateStockInfo(sh.stockId)
 
 nextOrder:
@@ -200,6 +200,9 @@ nextOrder:
 			}
 		}
 
+		dto := new(common.BLOrderDTO)
+		common.MarshalOrderDTO(order, dto)
+
 		select {
 		case req := <-sh.subscribes:
 			// Handle new subscriber
@@ -207,7 +210,7 @@ nextOrder:
 			close(ch)
 			ch = req.ch
 			info.Seek(req.etag)
-		case ch <- order:
+		case ch <- dto:
 		}
 	}
 }

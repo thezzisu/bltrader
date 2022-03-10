@@ -11,13 +11,21 @@ import (
 	"github.com/thezzisu/bltrader/common"
 )
 
+type TransportAllocateRequest struct {
+	stock     int32
+	etag      int32
+	handshake int32
+}
+
 type Transport struct {
-	hub          *Hub
-	remote       *Remote
-	pair         common.RPCPair
-	die          chan struct{}
-	dieOnce      sync.Once
-	incomingConn chan net.Conn
+	hub               *Hub
+	remote            *Remote
+	pair              common.RPCPair
+	die               chan struct{}
+	dieOnce           sync.Once
+	incomingConn      chan net.Conn
+	subscriptionCount uint32
+	allocates         chan TransportAllocateRequest
 }
 
 func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
@@ -28,6 +36,8 @@ func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
 
 	t.die = make(chan struct{})
 	t.incomingConn = make(chan net.Conn)
+	t.subscriptionCount = 0
+	t.allocates = make(chan TransportAllocateRequest)
 
 	return t
 }
@@ -139,9 +149,57 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 }
 
 func (t *Transport) SendLoop(conn net.Conn) {
-	//
+	var err error
+	subscriptions := make([]<-chan *common.BLOrderDTO, 0)
+	for {
+		select {
+		// Just forward commands to slave
+		case dto := <-t.remote.command:
+			err = binary.Write(conn, binary.LittleEndian, *dto)
+
+		// Allocate a new subscription
+		case req := <-t.allocates:
+			ch := t.hub.stocks[req.stock].Subscribe(req.etag)
+			subscriptions = append(subscriptions, ch)
+			err = binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
+				Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
+				OrderId: req.handshake,
+			})
+
+		// None-blocking
+		default:
+		}
+
+		if err != nil {
+			Logger.Println("Transport.SendLoop", err)
+			conn.Close()
+			return
+		}
+
+		for i := 0; i < len(subscriptions); i++ {
+			select {
+			case dto, ok := <-subscriptions[i]:
+				if !ok {
+					subscriptions[i] = subscriptions[len(subscriptions)-1]
+					subscriptions = subscriptions[:len(subscriptions)-1]
+					i--
+					continue
+				}
+
+				err = binary.Write(conn, binary.LittleEndian, *dto)
+				if err != nil {
+					Logger.Println("Transport.SendLoop", err)
+					conn.Close()
+					return
+				}
+
+			// None-blocking
+			default:
+			}
+		}
+	}
 }
 
-func (t *Transport) Subscribe(stock int32, etag int32) {
-	//
+func (t *Transport) Allocate(stock int32, etag int32, handshake int32) {
+	t.allocates <- TransportAllocateRequest{stock, etag, handshake}
 }

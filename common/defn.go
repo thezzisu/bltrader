@@ -5,6 +5,24 @@ import (
 	"math"
 )
 
+const (
+	CmdSubReq = 0
+	CmdSubRes = 1
+)
+
+func IsCmd(mix int32) bool {
+	return mix < 0
+}
+
+func EncodeCmd(cmd int32, payload int32) int32 {
+	return -((cmd<<16 | payload) + 1)
+}
+
+func DecodeCmd(mix int32) (int32, int32) {
+	mix = -mix - 1
+	return mix >> 16, mix & 0xffff
+}
+
 type BLOrder struct {
 	StkCode   int32
 	OrderId   int32
