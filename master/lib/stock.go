@@ -126,7 +126,7 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	sh.dataDir = dataDir
 	sh.interested = make(map[int32][]*StockOrderDep)
 	sh.deps = make(map[int32]*StockOrderDep)
-
+	sh.subscribes = make(chan *StockSubscribeRequest)
 	return sh
 }
 
@@ -168,7 +168,7 @@ func (sh *StockHandler) SendLoop() {
 	info := CreateStockInfo(sh.stockId)
 
 	replace := func(req *StockSubscribeRequest) {
-		fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
+		Logger.Printf("StockHandler[%d].SendLoop: slave subscribed since %d\n", sh.stockId, req.etag)
 		close(ch)
 		ch = req.ch
 		info.Seek(req.etag)
@@ -259,6 +259,7 @@ subscribe:
 			}
 		}
 	}
+	Logger.Printf("StockHandler[%d].RecvLoop done\n", sh.stockId)
 	writer.Flush()
 	f.Close()
 	sh.hub.wg.Done()

@@ -99,6 +99,7 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
 			bestK, bestV = i, v
 		}
 	}
+	Logger.Printf("Remote[%s].Allocate: stock %d from %d using %d\n", r.name, stock, etag, bestK)
 	r.transports[bestK].Allocate(stock, etag, handshake)
 }
 
@@ -110,6 +111,7 @@ func (r *Remote) RecvLoop() {
 		select {
 		case dto := <-r.incoming:
 			if common.IsCmd(dto.Mix) {
+				// Logger.Printf("Remote[%s].RecvLoop: got command\n", r.name)
 				cmd, payload := common.DecodeCmd(dto.Mix)
 				// Command
 				switch cmd {
@@ -154,6 +156,7 @@ func (r *Remote) Start() {
 }
 
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrder {
+	Logger.Printf("Remote[%s].Subscribe: stock %d from %d\n", r.name, stock, etag)
 	ch := make(chan *common.BLOrder)
 	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, ch: ch}
 	return ch

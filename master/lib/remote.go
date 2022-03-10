@@ -99,6 +99,7 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
 			bestK, bestV = i, v
 		}
 	}
+	Logger.Printf("Remote[%s].Allocate: stock %d from %d using %d\n", r.name, stock, etag, bestK)
 	r.transports[bestK].Allocate(stock, etag, handshake)
 }
 
@@ -154,6 +155,7 @@ func (r *Remote) Start() {
 }
 
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLTrade {
+	Logger.Printf("Remote[%s].Subscribe: stock %d from %d\n", r.name, stock, etag)
 	ch := make(chan *common.BLTrade)
 	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, ch: ch}
 	return ch

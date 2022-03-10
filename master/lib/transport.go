@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"reflect"
 	"sync"
 	"time"
 
@@ -59,6 +60,7 @@ func (t *Transport) IsClosed() bool {
 
 func (t *Transport) Start() {
 	go t.AcceptLoop()
+	go t.HandleLoop()
 }
 
 func (t *Transport) AcceptLoop() {
@@ -158,52 +160,43 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 
 func (t *Transport) SendLoop(conn net.Conn) {
 	var err error
-	subscriptions := make([]<-chan *common.BLOrderDTO, 0)
-	for {
-		select {
-		// Just forward commands to slave
-		case dto := <-t.remote.command:
-			err = binary.Write(conn, binary.LittleEndian, *dto)
+	cases := make([]reflect.SelectCase, 2)
+	cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.remote.command)}
+	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.allocates)}
 
-		// Allocate a new subscription
-		case req := <-t.allocates:
+	for {
+		chosen, recv, ok := reflect.Select(cases)
+		switch chosen {
+		case 0: // Handle command
+			dto := recv.Interface().(*common.BLOrderDTO)
+			err = binary.Write(conn, binary.LittleEndian, dto)
+
+		case 1: // Handle allocate
+			req := recv.Interface().(TransportAllocateRequest)
 			ch := t.hub.stocks[req.stock].Subscribe(req.etag)
-			subscriptions = append(subscriptions, ch)
+			cases = append(cases, reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ch),
+			})
 			err = binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
 				Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
 				OrderId: req.handshake,
 			})
 
-		// None-blocking
 		default:
+			if !ok {
+				cases[chosen] = cases[len(cases)-1]
+				cases = cases[:len(cases)-1]
+				continue
+			}
+			dto := recv.Interface().(*common.BLOrderDTO)
+			err = binary.Write(conn, binary.LittleEndian, dto)
 		}
 
 		if err != nil {
 			Logger.Println("Transport.SendLoop", err)
 			conn.Close()
 			return
-		}
-
-		for i := 0; i < len(subscriptions); i++ {
-			select {
-			case dto, ok := <-subscriptions[i]:
-				if !ok {
-					subscriptions[i] = subscriptions[len(subscriptions)-1]
-					subscriptions = subscriptions[:len(subscriptions)-1]
-					i--
-					continue
-				}
-
-				err = binary.Write(conn, binary.LittleEndian, *dto)
-				if err != nil {
-					Logger.Println("Transport.SendLoop", err)
-					conn.Close()
-					return
-				}
-
-			// None-blocking
-			default:
-			}
 		}
 	}
 }

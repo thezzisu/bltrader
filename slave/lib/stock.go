@@ -1,7 +1,6 @@
 package lib
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/thezzisu/bltrader/common"
@@ -70,6 +69,7 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	sh.stockId = stockId
 	sh.subscribes = make(map[string]chan *StockSubscribeRequest)
 	sh.peekers = make(map[string]*Peeker)
+	sh.readers = make(map[string]*TradeReader)
 	return sh
 }
 
@@ -85,7 +85,7 @@ func (sh *StockHandler) SendLoop(name string) {
 	reader := sh.readers[name]
 
 	replace := func(req *StockSubscribeRequest) {
-		fmt.Printf("StockHandler.SendLoop(%s): subscribing to %d\n", name, req.etag)
+		Logger.Printf("StockHandler[%d].SendLoop(%s): master subscribed since %d\n", sh.stockId, name, req.etag)
 		close(ch)
 		ch = req.ch
 		reader.Seek(req.etag)
@@ -113,6 +113,7 @@ func (sh *StockHandler) SendLoop(name string) {
 				req := <-subscribe
 				replace(req)
 			}
+			continue
 		}
 
 		dto := new(common.BLTradeDTO)
@@ -153,6 +154,7 @@ subscribe:
 			}
 		}
 	}
+	Logger.Printf("StockHandler[%d].RecvLoop done\n", sh.stockId)
 	sh.hub.wg.Done()
 }
 
