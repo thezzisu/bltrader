@@ -2,6 +2,7 @@ package lib
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"path"
 	"sync"
@@ -95,8 +96,10 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
 	bestK, bestV := 0, atomic.LoadInt32(&r.transports[0].subscriptionCount)
 	for i := 1; i < len(r.transports); i++ {
 		v := atomic.LoadInt32(&r.transports[i].subscriptionCount)
-		if v > bestV {
+		if v < bestV {
 			bestK, bestV = i, v
+		} else if v == bestV && rand.Int()&1 == 0 {
+			bestK = i
 		}
 	}
 	Logger.Printf("Remote[%s].Allocate: stock %d from %d using %d\n", r.name, stock, etag, bestK)
@@ -156,7 +159,7 @@ func (r *Remote) Start() {
 }
 
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrder {
-	Logger.Printf("Remote[%s].Subscribe: stock %d from %d\n", r.name, stock, etag)
+	Logger.Printf("Remote[%s].Subscribe: stock %d since %d\n", r.name, stock, etag)
 	ch := make(chan *common.BLOrder)
 	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, ch: ch}
 	return ch

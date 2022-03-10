@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"net"
@@ -160,17 +161,25 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 }
 
 func (t *Transport) SendLoop(conn net.Conn) {
+	// TODO consider MTU
+	writer := bufio.NewWriterSize(conn, 1400)
 	var err error
-	cases := make([]reflect.SelectCase, 2)
+	cases := make([]reflect.SelectCase, 3)
 	cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.remote.command)}
 	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.allocates)}
 
 	for {
+		timer := time.NewTimer(time.Second / 10)
+		cases[2] = reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(timer.C),
+		}
+
 		chosen, recv, ok := reflect.Select(cases)
 		switch chosen {
 		case 0: // Handle command
 			dto := recv.Interface().(*common.BLOrderDTO)
-			err = binary.Write(conn, binary.LittleEndian, dto)
+			err = binary.Write(writer, binary.LittleEndian, dto)
 
 		case 1: // Handle allocate
 			req := recv.Interface().(TransportAllocateRequest)
@@ -180,10 +189,13 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				Chan: reflect.ValueOf(ch),
 			})
 			atomic.AddInt32(&t.subscriptionCount, 1)
-			err = binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
+			err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
 				Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
 				OrderId: req.handshake,
 			})
+
+		case 2: //Handle timeout
+			err = writer.Flush()
 
 		default:
 			if !ok {
@@ -193,7 +205,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				continue
 			}
 			dto := recv.Interface().(*common.BLOrderDTO)
-			err = binary.Write(conn, binary.LittleEndian, dto)
+			err = binary.Write(writer, binary.LittleEndian, dto)
 		}
 
 		if err != nil {
