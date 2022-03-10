@@ -108,7 +108,7 @@ type StockHandler struct {
 	dataDir    string
 	interested map[int32][]*StockOrderDep
 	deps       map[int32]*StockOrderDep
-	subscribes chan StockSubscribeRequest
+	subscribes chan *StockSubscribeRequest
 }
 
 func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
@@ -150,7 +150,7 @@ func (sh *StockHandler) InitDeps() {
 
 func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
 	ch := make(chan *common.BLOrderDTO)
-	sh.subscribes <- StockSubscribeRequest{etag: etag, ch: ch}
+	sh.subscribes <- &StockSubscribeRequest{etag: etag, ch: ch}
 	return ch
 }
 
@@ -167,34 +167,44 @@ func (sh *StockHandler) SendLoop() {
 	ch := make(chan *common.BLOrderDTO)
 	info := CreateStockInfo(sh.stockId)
 
-nextOrder:
+	replace := func(req *StockSubscribeRequest) {
+		fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
+		close(ch)
+		ch = req.ch
+		info.Seek(req.etag)
+	}
+
 	for {
 		order := info.Next()
 		if order == nil {
 			// Send finished
-			req := <-sh.subscribes
-			fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
-			close(ch)
-			ch = req.ch
-			info.Seek(req.etag)
+			// Write EOF to remote
+			dto := new(common.BLOrderDTO)
+			common.MarshalOrderDTO(&common.BLOrder{
+				StkCode: sh.stockId,
+				OrderId: -1,
+			}, dto)
+
+			select {
+			// New subscriber
+			case req := <-sh.subscribes:
+				replace(req)
+
+			// EOF sent, waiting for new subscriber
+			case ch <- dto:
+				req := <-sh.subscribes
+				replace(req)
+			}
 			continue
 		}
 
 		if dep, ok := sh.deps[order.StkCode]; ok {
-			// This order is hooked
 			select {
 			case req := <-sh.subscribes:
-				// Handle new subscriber
-				fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
-				close(ch)
-				ch = req.ch
-				info.Seek(req.etag)
-				continue nextOrder
-
+				replace(req)
+				continue
 			case <-dep.ch:
-				// Depdenency is ready
 				if dep.val > dep.arg {
-					// Continue for next order
 					continue
 				}
 			}
@@ -205,11 +215,7 @@ nextOrder:
 
 		select {
 		case req := <-sh.subscribes:
-			// Handle new subscriber
-			fmt.Printf("StockHandler.SendLoop: subscribing to %d\n", req.etag)
-			close(ch)
-			ch = req.ch
-			info.Seek(req.etag)
+			replace(req)
 		case ch <- dto:
 		}
 	}

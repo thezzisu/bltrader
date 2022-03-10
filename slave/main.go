@@ -11,5 +11,5 @@ func main() {
 	lib.Logger.Printf("using %d cores\n", lib.Config.Procs)
 
 	hub := lib.CreateHub()
-	hub.MainLoop()
+	hub.Start()
 }

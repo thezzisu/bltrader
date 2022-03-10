@@ -2,9 +2,7 @@ package lib
 
 import (
 	"encoding/binary"
-	"errors"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -58,94 +56,67 @@ func (t *Transport) IsClosed() bool {
 }
 
 func (t *Transport) Start() {
-	go t.AcceptLoop()
+	go t.DialLoop()
 }
 
-func (t *Transport) AcceptLoop() {
-	addr, err := net.ResolveTCPAddr("tcp", t.pair.MasterAddr)
+func (t *Transport) DialLoop() {
+	raddr, err := net.ResolveTCPAddr("tcp", t.pair.MasterAddr)
 	if err != nil {
-		Logger.Println("Transport.AcceptLoop", err)
+		Logger.Println("Transport.DialLoop", err)
 		t.Close()
 		return
 	}
+	laddr, err := net.ResolveTCPAddr("tcp", t.pair.SlaveAddr)
+	if err != nil {
+		Logger.Println("Transport.DialLoop", err)
+		t.Close()
+		return
+	}
+
 	for !t.IsClosed() {
-		listener, err := net.ListenTCP("tcp", addr)
+		// TODO add timeout
+		conn, err := net.DialTCP("tcp", laddr, raddr)
 		if err != nil {
-			Logger.Println("Transport.AcceptLoop", err)
+			Logger.Println("Transport.DialLoop", err)
 			time.Sleep(time.Second / 2)
 			continue
 		}
-		Logger.Printf("Transport listening on %s", t.pair.MasterAddr)
-		for !t.IsClosed() {
-			// TODO add configuraion for timeout
-			listener.SetDeadline(time.Now().Add(time.Second))
-			conn, err := listener.AcceptTCP()
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				continue
-			}
-			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
-				break
-			}
-
-			// Verify connection
-			var magic uint32
-			err = binary.Read(conn, binary.LittleEndian, &magic)
-			if err != nil || magic != Config.Magic {
-				Logger.Printf("Invalid connection from %s", conn.RemoteAddr())
-				conn.Close()
-				continue
-			}
-
-			// Set socket options
-			err = conn.SetKeepAlive(true)
-			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
-				conn.Close()
-				continue
-			}
-			// TODO add configuration
-			conn.SetKeepAlivePeriod(time.Second * 10)
-			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
-				conn.Close()
-				continue
-			}
-
-			Logger.Printf("Transport accepted connection from %s", conn.RemoteAddr().String())
-			t.incomingConn <- conn
+		err = binary.Write(conn, binary.BigEndian, Config.Magic)
+		if err != nil {
+			Logger.Println("Transport.DialLoop", err)
+			conn.Close()
+			continue
 		}
-		listener.Close()
+
+		err = conn.SetKeepAlive(true)
+		if err != nil {
+			Logger.Println("Transport.DialLoop", err)
+			conn.Close()
+			continue
+		}
+		err = conn.SetKeepAlivePeriod(time.Second * 10)
+		if err != nil {
+			Logger.Println("Transport.DialLoop", err)
+			conn.Close()
+			continue
+		}
+
+		Logger.Printf("Transport dialed connection to %s", conn.RemoteAddr().String())
+		t.Handle(conn)
 	}
-	close(t.incomingConn)
 }
 
-func (t *Transport) HandleLoop() {
-	var lastConn net.Conn
-	for !t.IsClosed() {
-		select {
-		case newConn, ok := <-t.incomingConn:
-			if !ok {
-				return
-			}
-			if lastConn != nil {
-				lastConn.Close()
-			}
-			go t.RecvLoop(newConn)
-			go t.SendLoop(newConn)
-			lastConn = newConn
-		case <-t.die:
-			if lastConn != nil {
-				lastConn.Close()
-			}
-			return
-		}
-	}
+func (t *Transport) Handle(conn net.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { t.RecvLoop(conn); wg.Done() }()
+	go func() { t.SendLoop(conn); wg.Done() }()
+	wg.Wait()
 }
 
 func (t *Transport) RecvLoop(conn net.Conn) {
 	for {
-		var dto common.BLTradeDTO
+		var dto common.BLOrderDTO
 		err := binary.Read(conn, binary.LittleEndian, &dto)
 		if err != nil {
 			Logger.Println("Transport.RecvLoop", err)
@@ -158,7 +129,7 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 
 func (t *Transport) SendLoop(conn net.Conn) {
 	var err error
-	subscriptions := make([]<-chan *common.BLOrderDTO, 0)
+	subscriptions := make([]<-chan *common.BLTradeDTO, 0)
 	for {
 		select {
 		// Just forward commands to slave
@@ -167,11 +138,11 @@ func (t *Transport) SendLoop(conn net.Conn) {
 
 		// Allocate a new subscription
 		case req := <-t.allocates:
-			ch := t.hub.stocks[req.stock].Subscribe(req.etag)
+			ch := t.hub.stocks[req.stock].Subscribe(t.remote.name, req.etag)
 			subscriptions = append(subscriptions, ch)
-			err = binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
-				Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
-				OrderId: req.handshake,
+			err = binary.Write(conn, binary.LittleEndian, common.BLTradeDTO{
+				Mix:   common.EncodeCmd(common.CmdSubRes, req.stock),
+				AskId: req.handshake,
 			})
 
 		// None-blocking
