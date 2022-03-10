@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/thezzisu/bltrader/common"
@@ -25,7 +26,7 @@ type Transport struct {
 	die               chan struct{}
 	dieOnce           sync.Once
 	incomingConn      chan net.Conn
-	subscriptionCount uint32
+	subscriptionCount int32
 	allocates         chan TransportAllocateRequest
 }
 
@@ -178,6 +179,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				Dir:  reflect.SelectRecv,
 				Chan: reflect.ValueOf(ch),
 			})
+			atomic.AddInt32(&t.subscriptionCount, 1)
 			err = binary.Write(conn, binary.LittleEndian, common.BLOrderDTO{
 				Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
 				OrderId: req.handshake,
@@ -187,6 +189,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			if !ok {
 				cases[chosen] = cases[len(cases)-1]
 				cases = cases[:len(cases)-1]
+				atomic.AddInt32(&t.subscriptionCount, -1)
 				continue
 			}
 			dto := recv.Interface().(*common.BLOrderDTO)

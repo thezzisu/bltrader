@@ -92,9 +92,9 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
 		// just do not allocate at all!
 		return
 	}
-	bestK, bestV := 0, atomic.LoadUint32(&r.transports[0].subscriptionCount)
+	bestK, bestV := 0, atomic.LoadInt32(&r.transports[0].subscriptionCount)
 	for i := 1; i < len(r.transports); i++ {
-		v := atomic.LoadUint32(&r.transports[i].subscriptionCount)
+		v := atomic.LoadInt32(&r.transports[i].subscriptionCount)
 		if v > bestV {
 			bestK, bestV = i, v
 		}
