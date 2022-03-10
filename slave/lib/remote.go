@@ -121,7 +121,7 @@ func (r *Remote) RecvLoop() {
 				case common.CmdSubReq:
 					// Subscribe Request
 					// Use payload as StkId, Price as etag, OrderId as handshake
-					r.Allocate(payload, dto.Price, dto.OrderId)
+					go r.Allocate(payload, dto.Price, dto.OrderId)
 
 				case common.CmdSubRes:
 					// Subscribe Response
