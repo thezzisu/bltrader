@@ -30,11 +30,11 @@ func init() {
 
 type StockInfo struct {
 	StockId int32
-
-	cacheL []common.BLOrder
-	chunkL int
-	cacheR []common.BLOrder
-	chunkR int
+	ordPtr  int
+	cacheL  []common.BLOrder
+	chunkL  int
+	cacheR  []common.BLOrder
+	chunkR  int
 }
 
 func (si *StockInfo) String() string {
@@ -60,12 +60,38 @@ func (si *StockInfo) Slide() {
 }
 
 func (si *StockInfo) Seek(etag int32) {
-	// TODO
+	for si.cacheR[len(si.cacheR)-1].OrderId <= etag {
+		if si.chunkR == ChunkCount-1 {
+			si.ordPtr = len(si.cacheR)
+			return
+		}
+		si.Slide()
+	}
+	lp, rp := 0, len(si.cacheR)-1
+	for lp < rp {
+		mid := (lp + rp) / 2
+		if si.cacheR[mid].OrderId == etag {
+			si.ordPtr = mid + 1
+			return
+		} else if si.cacheR[mid].OrderId < etag {
+			lp = mid + 1
+		} else {
+			rp = mid
+		}
+	}
+	si.ordPtr = lp
 }
 
 func (si *StockInfo) Next() *common.BLOrder {
-	// TODO
-	return nil
+	if si.ordPtr == len(si.cacheR) {
+		if si.chunkR == ChunkCount-1 {
+			return nil
+		}
+		si.Slide()
+		si.ordPtr = 0
+	}
+	si.ordPtr++
+	return &si.cacheR[si.ordPtr-1]
 }
 
 func CreateStockInfo(stockId int32) *StockInfo {
@@ -77,6 +103,7 @@ func CreateStockInfo(stockId int32) *StockInfo {
 			chunkL:  0,
 			cacheR:  LoadOrderChunk(stockId, 0),
 			chunkR:  0,
+			ordPtr:  0,
 		}
 	} else {
 		return &StockInfo{
@@ -85,6 +112,7 @@ func CreateStockInfo(stockId int32) *StockInfo {
 			chunkL:  0,
 			cacheR:  LoadOrderChunk(stockId, 1),
 			chunkR:  1,
+			ordPtr:  0,
 		}
 	}
 }
@@ -198,7 +226,7 @@ func (sh *StockHandler) SendLoop() {
 			continue
 		}
 
-		if dep, ok := sh.deps[order.StkCode]; ok {
+		if dep, ok := sh.deps[order.OrderId]; ok {
 			select {
 			case req := <-sh.subscribes:
 				replace(req)
