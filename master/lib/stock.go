@@ -145,7 +145,7 @@ func CreateStockInfo(stockId int32) *StockInfo {
 			cacheR:  LoadOrderChunk(stockId, 1),
 			chunkR:  1,
 			ordPtr:  0,
-			incR:    true,
+			incR:    false,
 		}
 	}
 }
