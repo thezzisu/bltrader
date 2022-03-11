@@ -377,6 +377,10 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 	blrunner.upperPrice = upper
 	blrunner.queuePool = &sync.Pool{New: func() interface{} { return new(LinkNode) }}
 
+	blrunner.buyVolume, blrunner.sellVolume = 0, 0
+	return
+	// Disable load cache
+
 	_, errB := os.Stat("./buy_cache")
 	_, errS := os.Stat("./sell_cache")
 	noB, noS := os.IsNotExist(errB), os.IsNotExist(errS)
