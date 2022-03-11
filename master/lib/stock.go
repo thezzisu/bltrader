@@ -31,6 +31,7 @@ func init() {
 type StockInfo struct {
 	StockId int32
 	ordPtr  int
+	incR    bool
 	cacheL  []common.BLOrder
 	chunkL  int
 	cacheR  []common.BLOrder
@@ -60,29 +61,59 @@ func (si *StockInfo) Slide() {
 }
 
 func (si *StockInfo) Seek(etag int32) {
+	if si.cacheL[len(si.cacheL)-1].OrderId > etag {
+		si.incR = false
+	}
 	for si.cacheR[len(si.cacheR)-1].OrderId <= etag {
 		if si.chunkR == ChunkCount-1 {
 			si.ordPtr = len(si.cacheR)
+			si.incR = true
 			return
 		}
+		si.incR = true
 		si.Slide()
 	}
-	lp, rp := 0, len(si.cacheR)-1
-	for lp < rp {
-		mid := (lp + rp) / 2
-		if si.cacheR[mid].OrderId == etag {
-			si.ordPtr = mid + 1
-			return
-		} else if si.cacheR[mid].OrderId < etag {
-			lp = mid + 1
-		} else {
-			rp = mid
+	if si.incR {
+		lp, rp := 0, len(si.cacheR)-1
+		for lp < rp {
+			mid := (lp + rp) / 2
+			if si.cacheR[mid].OrderId == etag {
+				si.ordPtr = mid + 1
+				return
+			} else if si.cacheR[mid].OrderId < etag {
+				lp = mid + 1
+			} else {
+				rp = mid
+			}
 		}
+		si.ordPtr = lp
+	} else {
+		lp, rp := 0, len(si.cacheL)-1
+		for lp < rp {
+			mid := (lp + rp) / 2
+			if si.cacheL[mid].OrderId == etag {
+				si.ordPtr = mid + 1
+				return
+			} else if si.cacheL[mid].OrderId < etag {
+				lp = mid + 1
+			} else {
+				rp = mid
+			}
+		}
+		si.ordPtr = lp
 	}
-	si.ordPtr = lp
 }
 
 func (si *StockInfo) Next() *common.BLOrder {
+	if !si.incR {
+		if si.ordPtr == len(si.cacheL) {
+			si.incR = true
+			si.ordPtr = 0
+			return &si.cacheR[0]
+		}
+		si.ordPtr++
+		return &si.cacheL[si.ordPtr-1]
+	}
 	if si.ordPtr == len(si.cacheR) {
 		if si.chunkR == ChunkCount-1 {
 			return nil
@@ -104,6 +135,7 @@ func CreateStockInfo(stockId int32) *StockInfo {
 			cacheR:  LoadOrderChunk(stockId, 0),
 			chunkR:  0,
 			ordPtr:  0,
+			incR:    true,
 		}
 	} else {
 		return &StockInfo{
@@ -113,6 +145,7 @@ func CreateStockInfo(stockId int32) *StockInfo {
 			cacheR:  LoadOrderChunk(stockId, 1),
 			chunkR:  1,
 			ordPtr:  0,
+			incR:    true,
 		}
 	}
 }
