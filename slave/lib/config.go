@@ -12,13 +12,16 @@ type MasterInfo struct {
 }
 
 type SlaveConfig struct {
-	Name     string       `json:"Name"`
-	DataDir  string       `json:"DataDir"`
-	Magic    uint32       `json:"Magic"`
-	Compress bool         `json:"Compress"`
-	Procs    int          `json:"Procs"`
-	Masters  []MasterInfo `json:"Masters"`
-	Stocks   []int32      `json:"Stocks"`
+	Name                  string       `json:"Name"`
+	DataDir               string       `json:"DataDir"`
+	Magic                 uint32       `json:"Magic"`
+	Compress              bool         `json:"Compress"`
+	Procs                 int          `json:"Procs"`
+	Masters               []MasterInfo `json:"Masters"`
+	Stocks                []int32      `json:"Stocks"`
+	StockHandlerTimeoutMs int          `json:"StockHandlerTimeoutMs"`
+	ShaperIntervalMs      int          `json:"ShaperIntervalMs"`
+	SubscribeTimeoutMs    int          `json:"SubscribeTimeoutMs"`
 }
 
 var Config SlaveConfig

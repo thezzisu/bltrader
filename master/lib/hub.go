@@ -20,9 +20,9 @@ func CreateHub() *Hub {
 	for stock := range StockMap {
 		hub.stocks[stock] = CreateStockHandler(hub, stock)
 	}
-	for _, stock := range hub.stocks {
-		stock.InitDeps()
-	}
+	// for _, stock := range hub.stocks {
+	// 	stock.InitDeps()
+	// }
 
 	return hub
 }

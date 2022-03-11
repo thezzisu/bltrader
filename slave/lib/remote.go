@@ -2,19 +2,21 @@ package lib
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/thezzisu/bltrader/common"
 )
 
 type RemoteSubscribeRequest struct {
-	stock int32
-	etag  int32
-	ch    chan *common.BLOrder
+	stock  int32
+	etag   int32
+	result chan chan *common.BLOrder
 }
 
 type Remote struct {
@@ -26,6 +28,7 @@ type Remote struct {
 	incoming       chan *common.BLOrderDTO
 	subscribes     chan RemoteSubscribeRequest
 	command        chan *common.BLTradeDTO
+	reshape        chan struct{}
 }
 
 func CreateRemote(hub *Hub, name string) *Remote {
@@ -39,6 +42,7 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.incoming = make(chan *common.BLOrderDTO)
 	r.subscribes = make(chan RemoteSubscribeRequest)
 	r.command = make(chan *common.BLTradeDTO)
+	r.reshape = make(chan struct{})
 	return r
 }
 
@@ -108,36 +112,48 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
 
 func (r *Remote) RecvLoop() {
 	pending := make(map[int32]RemoteSubscribeRequest)
+	pendingTimeout := make(chan int32)
+
 	subscription := make(map[int32]chan *common.BLOrder)
 	handshake := int32(0)
+
+	timeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
 	for {
 		select {
 		case dto := <-r.incoming:
 			if common.IsCmd(dto.Mix) {
-				// Logger.Printf("Remote[%s].RecvLoop: got command\n", r.name)
 				cmd, payload := common.DecodeCmd(dto.Mix)
-				// Command
 				switch cmd {
-				case common.CmdSubReq:
-					// Subscribe Request
-					// Use payload as StkId, Price as etag, OrderId as handshake
+				case common.CmdSubReq: // Subscribe Request, use payload as StkId, Price as etag, OrderId as handshake
 					go r.Allocate(payload, dto.Price, dto.OrderId)
 
-				case common.CmdSubRes:
-					// Subscribe Response
-					// Use BidId as handshake
+				case common.CmdSubRes: // Subscribe Response, use BidId as handshake
 					if req, ok := pending[dto.OrderId]; ok {
-						subscription[req.stock] = req.ch
+						ch := make(chan *common.BLOrder)
+						subscription[req.stock] = ch
+						req.result <- ch
 						delete(pending, dto.OrderId)
 					}
 				}
 			} else {
-				// Data
 				var order common.BLOrder
 				common.UnmarshalOrderDTO(dto, &order)
+				// 100ms data processing delay
+				timer := time.NewTimer(time.Millisecond * 100)
 				if ch, ok := subscription[order.StkCode]; ok {
-					ch <- &order
+					select {
+					case ch <- &order:
+					case <-timer.C:
+						close(ch)
+						delete(subscription, order.StkCode)
+					}
 				}
+			}
+
+		case hs := <-pendingTimeout:
+			if req, ok := pending[hs]; ok {
+				req.result <- nil
+				delete(pending, hs)
 			}
 
 		case req := <-r.subscribes:
@@ -149,18 +165,54 @@ func (r *Remote) RecvLoop() {
 				AskId: handshake,
 				Price: req.etag,
 			}
+			go func() {
+				time.Sleep(timeout)
+				pendingTimeout <- handshake
+			}()
 		}
+	}
+}
+
+func (r *Remote) ShaperLoop() {
+	interval := time.Millisecond * time.Duration(Config.ShaperIntervalMs)
+	for {
+		timer := time.NewTimer(interval)
+		select {
+		case <-timer.C:
+		case <-r.reshape:
+		}
+		r.transportMutex.RLock()
+
+		min, max := int32(math.MaxInt32), int32(0)
+		k := 0
+		for i, t := range r.transports {
+			count := atomic.LoadInt32(&t.subscriptionCount)
+			if count < min {
+				min = count
+			}
+			if count > max {
+				max = count
+				k = i
+			}
+		}
+		if max >= 2 && max-min > 0 {
+			Logger.Printf("Remote[%s].ShaperLoop: re-allocate %d", r.name, k)
+			r.transports[k].ReAllocate()
+		}
+		r.transportMutex.RUnlock()
 	}
 }
 
 func (r *Remote) Start() {
 	go r.MainLoop()
 	go r.RecvLoop()
+	go r.ShaperLoop()
 }
 
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrder {
 	Logger.Printf("Remote[%s].Subscribe: stock %d since %d\n", r.name, stock, etag)
-	ch := make(chan *common.BLOrder)
-	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, ch: ch}
+	result := make(chan chan *common.BLOrder)
+	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, result: result}
+	ch := <-result
 	return ch
 }

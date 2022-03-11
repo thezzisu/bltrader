@@ -129,14 +129,15 @@ func (sh *StockHandler) SendLoop(name string) {
 
 func (sh *StockHandler) RecvLoop(name string) {
 	remote := sh.hub.remotes[name]
-	peeker := sh.peekers[name]
+	// peeker := sh.peekers[name]
 	etag := int32(0)
+	timeout := Config.StockHandlerTimeoutMs
 subscribe:
 	for {
 		ch := remote.Subscribe(sh.stockId, etag)
 		for {
 			// TODO add configuration for timeout
-			timer := time.NewTimer(time.Second * 10)
+			timer := time.NewTimer(time.Millisecond * time.Duration(timeout))
 			select {
 			case order, ok := <-ch:
 				if !ok {
@@ -146,7 +147,10 @@ subscribe:
 					break subscribe
 				}
 				etag = order.OrderId
-				peeker.ch <- order
+				if etag%100000 == 0 {
+					Logger.Println(etag)
+				}
+				// peeker.ch <- order
 
 			case <-timer.C:
 				Logger.Printf("StockHandler[%d].RecvLoop(%s) timeout\n", sh.stockId, name)

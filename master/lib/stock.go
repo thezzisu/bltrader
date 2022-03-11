@@ -30,90 +30,39 @@ func init() {
 
 type StockInfo struct {
 	StockId int32
-	ordPtr  int
-	cacheL  []common.BLOrder
-	chunkL  int
-	cacheR  []common.BLOrder
-	chunkR  int
+	ordPtr  int32
 }
 
 func (si *StockInfo) String() string {
 	return fmt.Sprintf(
-		"StockInfo {\n\tstock = %d\n\twinL = [%d, %d]\n\twinR = [%d, %d]\n}",
+		"StockInfo {\n\tstock = %d\n}",
 		si.StockId,
-		si.cacheL[0].OrderId,
-		si.cacheL[len(si.cacheL)-1].OrderId,
-		si.cacheR[0].OrderId,
-		si.cacheR[len(si.cacheR)-1].OrderId,
 	)
 }
 
 func (si *StockInfo) Slide() {
-	if si.chunkR < ChunkCount-1 {
-		si.chunkL = si.chunkR
-		si.cacheL = si.cacheR
-		si.chunkR++
-		si.cacheR = LoadOrderChunk(si.StockId, si.chunkR)
-	} else {
-		Logger.Fatalln("StockInfo.Slide: no more data")
-	}
+	//
 }
 
 func (si *StockInfo) Seek(etag int32) {
-	for si.cacheR[len(si.cacheR)-1].OrderId <= etag {
-		if si.chunkR == ChunkCount-1 {
-			si.ordPtr = len(si.cacheR)
-			return
-		}
-		si.Slide()
-	}
-	lp, rp := 0, len(si.cacheR)-1
-	for lp < rp {
-		mid := (lp + rp) / 2
-		if si.cacheR[mid].OrderId == etag {
-			si.ordPtr = mid + 1
-			return
-		} else if si.cacheR[mid].OrderId < etag {
-			lp = mid + 1
-		} else {
-			rp = mid
-		}
-	}
-	si.ordPtr = lp
+	si.ordPtr = etag
 }
 
 func (si *StockInfo) Next() *common.BLOrder {
-	if si.ordPtr == len(si.cacheR) {
-		if si.chunkR == ChunkCount-1 {
-			return nil
-		}
-		si.Slide()
-		si.ordPtr = 0
+	if si.ordPtr == 50_000_000 {
+		return nil
 	}
 	si.ordPtr++
-	return &si.cacheR[si.ordPtr-1]
+	return &common.BLOrder{
+		StkCode: si.StockId,
+		OrderId: si.ordPtr,
+	}
 }
 
 func CreateStockInfo(stockId int32) *StockInfo {
-	if ChunkCount == 1 {
-		// Since we only have one chunk, just load it as cacheR
-		return &StockInfo{
-			StockId: stockId,
-			cacheL:  make([]common.BLOrder, 0),
-			chunkL:  0,
-			cacheR:  LoadOrderChunk(stockId, 0),
-			chunkR:  0,
-			ordPtr:  0,
-		}
-	} else {
-		return &StockInfo{
-			StockId: stockId,
-			cacheL:  LoadOrderChunk(stockId, 0),
-			chunkL:  0,
-			cacheR:  LoadOrderChunk(stockId, 1),
-			chunkR:  1,
-			ordPtr:  0,
-		}
+	return &StockInfo{
+		StockId: stockId,
+		ordPtr:  0,
 	}
 }
 
@@ -195,9 +144,11 @@ func (sh *StockHandler) SendLoop() {
 	ch := make(chan *common.BLOrderDTO)
 	info := CreateStockInfo(sh.stockId)
 
-	replace := func(req *StockSubscribeRequest) {
+	replace := func(req *StockSubscribeRequest, eager bool) {
 		Logger.Printf("StockHandler[%d].SendLoop: slave subscribed since %d\n", sh.stockId, req.etag)
-		close(ch)
+		if !eager {
+			close(ch)
+		}
 		ch = req.ch
 		info.Seek(req.etag)
 	}
@@ -216,12 +167,13 @@ func (sh *StockHandler) SendLoop() {
 			select {
 			// New subscriber
 			case req := <-sh.subscribes:
-				replace(req)
+				replace(req, false)
 
 			// EOF sent, waiting for new subscriber
 			case ch <- dto:
+				close(ch)
 				req := <-sh.subscribes
-				replace(req)
+				replace(req, true)
 			}
 			continue
 		}
@@ -229,7 +181,7 @@ func (sh *StockHandler) SendLoop() {
 		if dep, ok := sh.deps[order.OrderId]; ok {
 			select {
 			case req := <-sh.subscribes:
-				replace(req)
+				replace(req, false)
 				continue
 			case <-dep.ch:
 				if dep.val > dep.arg {
@@ -243,7 +195,7 @@ func (sh *StockHandler) SendLoop() {
 
 		select {
 		case req := <-sh.subscribes:
-			replace(req)
+			replace(req, false)
 		case ch <- dto:
 		}
 	}
@@ -258,14 +210,14 @@ func (sh *StockHandler) RecvLoop() {
 	if err != nil {
 		Logger.Fatalf("StockHandler[%d].RecvLoop %v\n", sh.stockId, err)
 	}
+	timeout := time.Millisecond * time.Duration(Config.StockRecvTimeoutMs)
 	writer := bufio.NewWriter(f)
 	lastId := int32(0)
 subscribe:
 	for {
 		ch := sh.remote.Subscribe(sh.stockId, lastId)
 		for {
-			// TODO add configuration for this timeout
-			timer := time.NewTimer(time.Second * 10)
+			timer := time.NewTimer(timeout)
 			select {
 			case trade, ok := <-ch:
 				if !ok {

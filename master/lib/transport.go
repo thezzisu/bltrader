@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"math/rand"
 	"net"
 	"os"
 	"reflect"
@@ -29,6 +30,7 @@ type Transport struct {
 	incomingConn      chan net.Conn
 	subscriptionCount int32
 	allocates         chan TransportAllocateRequest
+	reallocate        chan struct{}
 }
 
 func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
@@ -41,6 +43,7 @@ func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
 	t.incomingConn = make(chan net.Conn)
 	t.subscriptionCount = 0
 	t.allocates = make(chan TransportAllocateRequest)
+	t.reallocate = make(chan struct{})
 
 	return t
 }
@@ -102,19 +105,18 @@ func (t *Transport) AcceptLoop() {
 			}
 
 			// Set socket options
-			err = conn.SetKeepAlive(true)
-			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
-				conn.Close()
-				continue
-			}
-			// TODO add configuration
-			conn.SetKeepAlivePeriod(time.Second * 10)
-			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
-				conn.Close()
-				continue
-			}
+			// err = conn.SetKeepAlive(true)
+			// if err != nil {
+			// 	Logger.Println("Transport.AcceptLoop", err)
+			// 	conn.Close()
+			// 	continue
+			// }
+			// conn.SetKeepAlivePeriod(time.Second * 10)
+			// if err != nil {
+			// 	Logger.Println("Transport.AcceptLoop", err)
+			// 	conn.Close()
+			// 	continue
+			// }
 
 			Logger.Printf("Transport accepted connection from %s", conn.RemoteAddr().String())
 			t.incomingConn <- conn
@@ -164,13 +166,14 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	// TODO consider MTU
 	writer := bufio.NewWriterSize(conn, 1400)
 	var err error
-	cases := make([]reflect.SelectCase, 3)
+	cases := make([]reflect.SelectCase, 4)
 	cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.remote.command)}
 	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.allocates)}
+	cases[2] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.reallocate)}
 
 	for {
 		timer := time.NewTimer(time.Second / 10)
-		cases[2] = reflect.SelectCase{
+		cases[3] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(timer.C),
 		}
@@ -194,7 +197,14 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				OrderId: req.handshake,
 			})
 
-		case 2: //Handle timeout
+		case 2: // Handle re-allocate
+			i := rand.Intn(len(cases)-4) + 4
+			cases[i] = cases[len(cases)-1]
+			cases = cases[:len(cases)-1]
+			atomic.AddInt32(&t.subscriptionCount, -1)
+			continue
+
+		case 3: //Handle timeout
 			err = writer.Flush()
 
 		default:
@@ -202,6 +212,8 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				cases[chosen] = cases[len(cases)-1]
 				cases = cases[:len(cases)-1]
 				atomic.AddInt32(&t.subscriptionCount, -1)
+				Logger.Println("Transport.SendLoop", "request re-allocate")
+				t.remote.reshape <- struct{}{}
 				continue
 			}
 			dto := recv.Interface().(*common.BLOrderDTO)
@@ -217,5 +229,10 @@ func (t *Transport) SendLoop(conn net.Conn) {
 }
 
 func (t *Transport) Allocate(stock int32, etag int32, handshake int32) {
+	atomic.AddInt32(&t.subscriptionCount, 1)
 	t.allocates <- TransportAllocateRequest{stock, etag, handshake}
+}
+
+func (t *Transport) ReAllocate() {
+	t.reallocate <- struct{}{}
 }
