@@ -169,6 +169,9 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			})
 
 		case 2: // Handle re-allocate
+			if len(cases) <= 4 {
+				continue
+			}
 			i := rand.Intn(len(cases)-4) + 4
 			cases[i] = cases[len(cases)-1]
 			cases = cases[:len(cases)-1]
@@ -184,6 +187,9 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				cases = cases[:len(cases)-1]
 				atomic.AddInt32(&t.subscriptionCount, -1)
 				Logger.Println("Transport.SendLoop", "request re-allocate")
+				if len(cases) <= 4 {
+					t.remote.reshape <- struct{}{}
+				}
 				t.remote.reshape <- struct{}{}
 				continue
 			}

@@ -179,7 +179,9 @@ func (r *Remote) ShaperLoop() {
 		timer := time.NewTimer(interval)
 		select {
 		case <-timer.C:
+			Logger.Printf("Remote[%s].ShaperLoop: triggered by timer\n", r.name)
 		case <-r.reshape:
+			Logger.Printf("Remote[%s].ShaperLoop: triggered by transport\n", r.name)
 		}
 		r.transportMutex.RLock()
 
