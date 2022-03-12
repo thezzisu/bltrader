@@ -127,8 +127,16 @@ func (sh *StockHandler) InitDeps() {
 
 func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
 	ch := make(chan *common.BLOrderDTO)
-	sh.subscribes <- &StockSubscribeRequest{etag: etag, ch: ch}
-	return ch
+	// 100ms timeout
+	timer := time.NewTimer(time.Millisecond * 100)
+	select {
+	case sh.subscribes <- &StockSubscribeRequest{etag: etag, ch: ch}:
+		return ch
+
+	case <-timer.C:
+		close(ch)
+		return nil
+	}
 }
 
 func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
@@ -179,14 +187,9 @@ func (sh *StockHandler) SendLoop() {
 		}
 
 		if dep, ok := sh.deps[order.OrderId]; ok {
-			select {
-			case req := <-sh.subscribes:
-				replace(req, false)
+			<-dep.ch
+			if dep.val > dep.arg {
 				continue
-			case <-dep.ch:
-				if dep.val > dep.arg {
-					continue
-				}
 			}
 		}
 

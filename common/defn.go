@@ -8,6 +8,7 @@ import (
 const (
 	CmdSubReq = 0
 	CmdSubRes = 1
+	CmdUnsub  = 2
 )
 
 func IsCmd(mix int32) bool {

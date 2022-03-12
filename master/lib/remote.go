@@ -89,13 +89,13 @@ func (r *Remote) MainLoop() {
 	}
 }
 
-func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
+func (r *Remote) Allocate(stock int32, etag int32, handshake int32) int {
 	r.transportMutex.RLock()
 	defer r.transportMutex.RUnlock()
 	if len(r.transports) == 0 {
 		// Since we do not have any transports,
 		// just do not allocate at all!
-		return
+		return -1
 	}
 	bestK, bestV := 0, atomic.LoadInt32(&r.transports[0].subscriptionCount)
 	for i := 1; i < len(r.transports); i++ {
@@ -108,6 +108,7 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
 	}
 	Logger.Printf("Remote[%s].Allocate: stock %d from %d using %d\n", r.name, stock, etag, bestK)
 	r.transports[bestK].Allocate(stock, etag, handshake)
+	return bestK
 }
 
 func (r *Remote) RecvLoop() {
@@ -115,7 +116,10 @@ func (r *Remote) RecvLoop() {
 	pendingTimeout := make(chan int32)
 
 	subscription := make(map[int32]chan *common.BLTrade)
+	hsids := make(map[int32]int32)
 	handshake := int32(0)
+
+	allocations := make(map[int32]int)
 
 	timeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
 	for {
@@ -124,15 +128,29 @@ func (r *Remote) RecvLoop() {
 			if common.IsCmd(dto.Mix) {
 				cmd, payload := common.DecodeCmd(dto.Mix)
 				switch cmd {
-				case common.CmdSubReq: // Subscribe Request, use payload as StkId, Price as etag, AskId as handshake
-					go r.Allocate(payload, dto.Price, dto.AskId)
+				case common.CmdSubReq: // Subscribe request, use payload as StkId, Price as etag, AskId as handshake
+					allocated := r.Allocate(payload, dto.Price, dto.AskId)
+					if allocated != -1 {
+						allocations[payload] = allocated
+					}
 
-				case common.CmdSubRes: // Subscribe Response, use AskId as handshake
+				case common.CmdSubRes: // Subscribe response, use AskId as handshake
 					if req, ok := pending[dto.AskId]; ok {
 						ch := make(chan *common.BLTrade)
 						subscription[req.stock] = ch
+						hsids[req.stock] = dto.AskId
 						req.result <- ch
 						delete(pending, dto.AskId)
+					}
+
+				case common.CmdUnsub: // Unsubscribe request
+					if k, ok := allocations[payload]; ok {
+						r.transportMutex.RLock()
+						if len(r.transports) > k { // Make sure we have that transport
+							r.transports[k].Unallocate(payload)
+						}
+						r.transportMutex.RUnlock()
+						delete(allocations, payload)
 					}
 				}
 			} else {
@@ -146,6 +164,15 @@ func (r *Remote) RecvLoop() {
 					case <-timer.C:
 						close(ch)
 						delete(subscription, trade.StkCode)
+						r.command <- &common.BLOrderDTO{
+							Mix:     common.EncodeCmd(common.CmdUnsub, trade.StkCode),
+							OrderId: hsids[trade.StkCode],
+						}
+					}
+				} else {
+					r.command <- &common.BLOrderDTO{
+						Mix:     common.EncodeCmd(common.CmdUnsub, trade.StkCode),
+						OrderId: hsids[trade.StkCode],
 					}
 				}
 			}
@@ -198,8 +225,8 @@ func (r *Remote) ShaperLoop() {
 			}
 		}
 		if max >= 2 && max-min > 0 {
-			Logger.Printf("Remote[%s].ShaperLoop: re-allocate %d", r.name, k)
-			r.transports[k].ReAllocate()
+			Logger.Printf("Remote[%s].ShaperLoop: shape %d", r.name, k)
+			r.transports[k].Shape()
 		}
 		r.transportMutex.RUnlock()
 	}

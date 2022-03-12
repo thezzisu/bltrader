@@ -15,7 +15,7 @@ import (
 	"github.com/thezzisu/bltrader/common"
 )
 
-type TransportAllocateRequest struct {
+type TransportCmd struct {
 	stock     int32
 	etag      int32
 	handshake int32
@@ -29,8 +29,7 @@ type Transport struct {
 	dieOnce           sync.Once
 	incomingConn      chan net.Conn
 	subscriptionCount int32
-	allocates         chan TransportAllocateRequest
-	reallocate        chan struct{}
+	cmds              chan TransportCmd
 }
 
 func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
@@ -42,8 +41,7 @@ func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
 	t.die = make(chan struct{})
 	t.incomingConn = make(chan net.Conn)
 	t.subscriptionCount = 0
-	t.allocates = make(chan TransportAllocateRequest)
-	t.reallocate = make(chan struct{})
+	t.cmds = make(chan TransportCmd)
 
 	return t
 }
@@ -166,57 +164,79 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	// TODO consider MTU
 	writer := bufio.NewWriterSize(conn, 1400)
 	var err error
-	cases := make([]reflect.SelectCase, 4)
+
+	const SPECIAL = 3
+	cases := make([]reflect.SelectCase, SPECIAL)
+	hsids := make([]int32, SPECIAL)
 	cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.remote.command)}
-	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.allocates)}
-	cases[2] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.reallocate)}
+	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.cmds)}
+
+	remove := func(pos int) {
+		cases[pos] = cases[len(cases)-1]
+		cases = cases[:len(cases)-1]
+		hsids[pos] = hsids[len(hsids)-1]
+		hsids = hsids[:len(hsids)-1]
+		atomic.AddInt32(&t.subscriptionCount, -1)
+	}
 
 	for {
 		timer := time.NewTimer(time.Second / 10)
-		cases[3] = reflect.SelectCase{
+		cases[2] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(timer.C),
 		}
 
 		chosen, recv, ok := reflect.Select(cases)
 		switch chosen {
-		case 0: // Handle command
+		case 0: // Handle remote's command
 			dto := recv.Interface().(*common.BLOrderDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
 
-		case 1: // Handle allocate
-			req := recv.Interface().(TransportAllocateRequest)
-			ch := t.hub.stocks[req.stock].Subscribe(req.etag)
-			cases = append(cases, reflect.SelectCase{
-				Dir:  reflect.SelectRecv,
-				Chan: reflect.ValueOf(ch),
-			})
-			atomic.AddInt32(&t.subscriptionCount, 1)
-			err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
-				Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
-				OrderId: req.handshake,
-			})
+		case 1: // Handle transport's command
+			req := recv.Interface().(TransportCmd)
+			switch req.stock {
+			case -1: // Unsubscribe
+				pos := 0
+				for i := SPECIAL; i < len(cases); i++ {
+					if hsids[i] == req.handshake {
+						pos = i
+					}
+				}
+				if pos != 0 {
+					remove(pos)
+				}
 
-		case 2: // Handle re-allocate
-			if len(cases) <= 4 {
-				continue
+			case -2: // Shape
+				if len(cases) <= SPECIAL {
+					continue
+				}
+				remove(rand.Intn(len(cases)-SPECIAL) + SPECIAL)
+
+			default: //Subscribe
+				ch := t.hub.stocks[req.stock].Subscribe(req.etag)
+				if ch != nil {
+					cases = append(cases, reflect.SelectCase{
+						Dir:  reflect.SelectRecv,
+						Chan: reflect.ValueOf(ch),
+					})
+					hsids = append(hsids, req.handshake)
+					atomic.AddInt32(&t.subscriptionCount, 1)
+
+					err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
+						Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
+						OrderId: req.handshake,
+					})
+				}
 			}
-			i := rand.Intn(len(cases)-4) + 4
-			cases[i] = cases[len(cases)-1]
-			cases = cases[:len(cases)-1]
-			atomic.AddInt32(&t.subscriptionCount, -1)
-			continue
 
-		case 3: //Handle timeout
+		case 2: //Handle timeout
 			err = writer.Flush()
 
 		default:
 			if !ok {
-				cases[chosen] = cases[len(cases)-1]
-				cases = cases[:len(cases)-1]
-				atomic.AddInt32(&t.subscriptionCount, -1)
-				Logger.Println("Transport.SendLoop", "request re-allocate")
-				if len(cases) <= 4 {
+				remove(chosen)
+				if len(cases) <= SPECIAL {
+					Logger.Println("Transport.SendLoop", "request reshape")
 					t.remote.reshape <- struct{}{}
 				}
 				continue
@@ -235,9 +255,13 @@ func (t *Transport) SendLoop(conn net.Conn) {
 
 func (t *Transport) Allocate(stock int32, etag int32, handshake int32) {
 	atomic.AddInt32(&t.subscriptionCount, 1)
-	t.allocates <- TransportAllocateRequest{stock, etag, handshake}
+	t.cmds <- TransportCmd{stock, etag, handshake}
 }
 
-func (t *Transport) ReAllocate() {
-	t.reallocate <- struct{}{}
+func (t *Transport) Unallocate(handshake int32) {
+	t.cmds <- TransportCmd{-1, 0, handshake}
+}
+
+func (t *Transport) Shape() {
+	t.cmds <- TransportCmd{-2, 0, 0}
 }
