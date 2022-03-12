@@ -180,10 +180,10 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	}
 
 	for {
-		timer := time.NewTimer(time.Second / 10)
+		// flush data every 100ms
 		cases[2] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(timer.C),
+			Chan: reflect.ValueOf(time.After(time.Millisecond * 100)),
 		}
 
 		chosen, recv, ok := reflect.Select(cases)

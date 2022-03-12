@@ -127,13 +127,12 @@ func (sh *StockHandler) InitDeps() {
 
 func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
 	ch := make(chan *common.BLOrderDTO, 128)
-	// 100ms timeout
-	timer := time.NewTimer(time.Millisecond * 100)
 	select {
 	case sh.subscribes <- &StockSubscribeRequest{etag: etag, ch: ch}:
 		return ch
 
-	case <-timer.C:
+	// 100ms timeout
+	case <-time.After(time.Millisecond * 100):
 		close(ch)
 		return nil
 	}
@@ -223,7 +222,6 @@ subscribe:
 			continue
 		}
 		for {
-			timer := time.NewTimer(timeout)
 			select {
 			case trade, ok := <-ch:
 				if !ok {
@@ -239,7 +237,7 @@ subscribe:
 				binary.Write(writer, nativeEndian, trade.AskId)
 				binary.Write(writer, nativeEndian, trade.Price)
 				binary.Write(writer, nativeEndian, trade.Volume)
-			case <-timer.C:
+			case <-time.After(timeout):
 				Logger.Printf("StockHandler[%d].RecvLoop timeout\n", sh.stockId)
 				continue subscribe
 			}

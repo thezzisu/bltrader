@@ -156,12 +156,11 @@ func (r *Remote) RecvLoop() {
 			} else {
 				var trade common.BLTrade
 				common.UnmarshalTradeDTO(dto, &trade)
-				// 100ms data processing delay
-				timer := time.NewTimer(time.Millisecond * 100)
 				if ch, ok := subscription[trade.StkCode]; ok {
 					select {
 					case ch <- &trade:
-					case <-timer.C:
+					// 100ms data processing delay
+					case <-time.After(time.Millisecond * 100):
 						close(ch)
 						delete(subscription, trade.StkCode)
 						r.command <- &common.BLOrderDTO{
@@ -203,9 +202,8 @@ func (r *Remote) RecvLoop() {
 func (r *Remote) ShaperLoop() {
 	interval := time.Millisecond * time.Duration(Config.ShaperIntervalMs)
 	for {
-		timer := time.NewTimer(interval)
 		select {
-		case <-timer.C:
+		case <-time.After(interval):
 		case <-r.reshape:
 		}
 		r.transportMutex.RLock()

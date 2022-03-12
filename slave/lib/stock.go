@@ -76,12 +76,11 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTradeDTO {
 	ch := make(chan *common.BLTradeDTO)
 	// 100ms timeout
-	timer := time.NewTimer(time.Millisecond * 100)
 	select {
 	case sh.subscribes[name] <- &StockSubscribeRequest{etag: etag, ch: ch}:
 		return ch
 
-	case <-timer.C:
+	case <-time.After(time.Millisecond * 100):
 		close(ch)
 		return nil
 	}
@@ -139,7 +138,7 @@ func (sh *StockHandler) RecvLoop(name string) {
 	remote := sh.hub.remotes[name]
 	// peeker := sh.peekers[name]
 	etag := int32(0)
-	timeout := Config.StockHandlerTimeoutMs
+	timeout := time.Millisecond * time.Duration(Config.StockHandlerTimeoutMs)
 subscribe:
 	for {
 		ch := remote.Subscribe(sh.stockId, etag)
@@ -147,8 +146,6 @@ subscribe:
 			continue
 		}
 		for {
-			// TODO add configuration for timeout
-			timer := time.NewTimer(time.Millisecond * time.Duration(timeout))
 			select {
 			case order, ok := <-ch:
 				if !ok {
@@ -163,7 +160,7 @@ subscribe:
 				}
 				// peeker.ch <- order
 
-			case <-timer.C:
+			case <-time.After(timeout):
 				Logger.Printf("StockHandler[%d].RecvLoop(%s) timeout\n", sh.stockId, name)
 				continue subscribe
 			}
