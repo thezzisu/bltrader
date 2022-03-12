@@ -151,9 +151,11 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	}
 
 	for {
+		// flush data every 100ms
+		timer := time.NewTimer(time.Millisecond * 100)
 		cases[2] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(time.After(time.Millisecond * 100)),
+			Chan: reflect.ValueOf(timer.C),
 		}
 
 		chosen, recv, ok := reflect.Select(cases)
@@ -213,6 +215,10 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			}
 			dto := recv.Interface().(*common.BLTradeDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
+		}
+
+		if !timer.Stop() {
+			<-timer.C
 		}
 
 		if err != nil {

@@ -159,11 +159,16 @@ func (r *Remote) RecvLoop() {
 			} else {
 				var order common.BLOrder
 				common.UnmarshalOrderDTO(dto, &order)
-				// 100ms data processing delay
 				if ch, ok := subscription[order.StkCode]; ok {
+					// 100ms data processing delay
+					timer := time.NewTimer(time.Millisecond * 100)
 					select {
 					case ch <- &order:
-					case <-time.After(time.Millisecond * 100):
+						if !timer.Stop() {
+							<-timer.C
+						}
+
+					case <-timer.C:
 						close(ch)
 						delete(subscription, order.StkCode)
 						Logger.Println("DEBUG send CmdUnsub")
@@ -197,10 +202,10 @@ func (r *Remote) RecvLoop() {
 				AskId: handshake,
 				Price: req.etag,
 			}
-			go func() {
+			go func(handshake int32) {
 				time.Sleep(timeout)
 				pendingTimeout <- handshake
-			}()
+			}(handshake)
 		}
 	}
 }
@@ -208,9 +213,13 @@ func (r *Remote) RecvLoop() {
 func (r *Remote) ShaperLoop() {
 	interval := time.Millisecond * time.Duration(Config.ShaperIntervalMs)
 	for {
+		timer := time.NewTimer(interval)
 		select {
-		case <-time.After(interval):
+		case <-timer.C:
 		case <-r.reshape:
+			if !timer.Stop() {
+				<-timer.C
+			}
 		}
 		r.transportMutex.RLock()
 

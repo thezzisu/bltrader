@@ -160,10 +160,15 @@ func (r *Remote) RecvLoop() {
 				var trade common.BLTrade
 				common.UnmarshalTradeDTO(dto, &trade)
 				if ch, ok := subscription[trade.StkCode]; ok {
+					// 100ms data processing delay
+					timer := time.NewTimer(time.Millisecond * 100)
 					select {
 					case ch <- &trade:
-					// 100ms data processing delay
-					case <-time.After(time.Millisecond * 100):
+						if !timer.Stop() {
+							<-timer.C
+						}
+
+					case <-timer.C:
 						close(ch)
 						delete(subscription, trade.StkCode)
 						Logger.Println("DEBUG send CmdUnsub")
@@ -197,10 +202,10 @@ func (r *Remote) RecvLoop() {
 				OrderId: handshake,
 				Price:   req.etag,
 			}
-			go func() {
+			go func(handshake int32) {
 				time.Sleep(timeout)
 				pendingTimeout <- handshake
-			}()
+			}(handshake)
 		}
 	}
 }
@@ -208,9 +213,13 @@ func (r *Remote) RecvLoop() {
 func (r *Remote) ShaperLoop() {
 	interval := time.Millisecond * time.Duration(Config.ShaperIntervalMs)
 	for {
+		timer := time.NewTimer(interval)
 		select {
-		case <-time.After(interval):
+		case <-timer.C:
 		case <-r.reshape:
+			if !timer.Stop() {
+				<-timer.C
+			}
 		}
 		r.transportMutex.RLock()
 
