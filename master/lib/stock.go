@@ -252,5 +252,5 @@ subscribe:
 func (sh *StockHandler) Start() {
 	sh.hub.wg.Add(1)
 	go sh.SendLoop()
-	go sh.RecvLoop()
+	// go sh.RecvLoop()
 }
