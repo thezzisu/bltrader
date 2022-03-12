@@ -46,7 +46,7 @@ func (t *TradeReader) Seek(etag int32) {
 }
 
 func (t *TradeReader) Next() *common.BLTrade {
-	//
+	time.Sleep(time.Hour)
 	return nil
 }
 
