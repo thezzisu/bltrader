@@ -143,6 +143,9 @@ func (sh *StockHandler) RecvLoop(name string) {
 subscribe:
 	for {
 		ch := remote.Subscribe(sh.stockId, etag)
+		if ch == nil {
+			continue
+		}
 		for {
 			// TODO add configuration for timeout
 			timer := time.NewTimer(time.Millisecond * time.Duration(timeout))

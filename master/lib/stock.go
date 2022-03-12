@@ -219,6 +219,9 @@ func (sh *StockHandler) RecvLoop() {
 subscribe:
 	for {
 		ch := sh.remote.Subscribe(sh.stockId, lastId)
+		if ch == nil {
+			continue
+		}
 		for {
 			timer := time.NewTimer(timeout)
 			select {

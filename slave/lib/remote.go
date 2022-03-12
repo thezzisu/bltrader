@@ -236,6 +236,7 @@ func (r *Remote) Start() {
 	go r.ShaperLoop()
 }
 
+// **NOTICE** return value might be nil
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrder {
 	Logger.Printf("Remote\tAsk master %s for stock %d since order no.%d\n", r.name, stock, etag)
 	result := make(chan chan *common.BLOrder)
