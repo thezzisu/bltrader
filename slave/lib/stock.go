@@ -75,8 +75,16 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 
 func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTradeDTO {
 	ch := make(chan *common.BLTradeDTO)
-	sh.subscribes[name] <- &StockSubscribeRequest{etag: etag, ch: ch}
-	return ch
+	// 100ms timeout
+	timer := time.NewTimer(time.Millisecond * 100)
+	select {
+	case sh.subscribes[name] <- &StockSubscribeRequest{etag: etag, ch: ch}:
+		return ch
+
+	case <-timer.C:
+		close(ch)
+		return nil
+	}
 }
 
 func (sh *StockHandler) SendLoop(name string) {
