@@ -190,10 +190,16 @@ func (t *Transport) SendLoop(conn net.Conn) {
 		chosen, recv, ok := reflect.Select(cases)
 		switch chosen {
 		case 0: // Handle remote's command
+			if !timer.Stop() {
+				<-timer.C
+			}
 			dto := recv.Interface().(*common.BLOrderDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
 
 		case 1: // Handle transport's command
+			if !timer.Stop() {
+				<-timer.C
+			}
 			req := recv.Interface().(TransportCmd)
 			switch req.stock {
 			case -1: // Unsubscribe
@@ -235,6 +241,9 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			err = writer.Flush()
 
 		default:
+			if !timer.Stop() {
+				<-timer.C
+			}
 			if !ok {
 				remove(chosen)
 				if len(cases) <= SPECIAL {
@@ -245,10 +254,6 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			}
 			dto := recv.Interface().(*common.BLOrderDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
-		}
-
-		if !timer.Stop() {
-			<-timer.C
 		}
 
 		if err != nil {
