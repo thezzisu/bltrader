@@ -41,7 +41,7 @@ func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
 	t.die = make(chan struct{})
 	t.incomingConn = make(chan net.Conn)
 	t.subscriptionCount = 0
-	t.cmds = make(chan TransportCmd)
+	t.cmds = make(chan TransportCmd, 16)
 
 	return t
 }
@@ -69,18 +69,18 @@ func (t *Transport) Start() {
 func (t *Transport) AcceptLoop() {
 	addr, err := net.ResolveTCPAddr("tcp", t.pair.MasterAddr)
 	if err != nil {
-		Logger.Println("Transport.AcceptLoop", err)
+		Logger.Println("Transport\tAcceptLoop", err)
 		t.Close()
 		return
 	}
 	for !t.IsClosed() {
 		listener, err := net.ListenTCP("tcp", addr)
 		if err != nil {
-			Logger.Println("Transport.AcceptLoop", err)
+			Logger.Println("Transport\tAcceptLoop", err)
 			time.Sleep(time.Second / 2)
 			continue
 		}
-		Logger.Printf("Transport listening on %s", t.pair.MasterAddr)
+		Logger.Printf("Transport\tListening on %s", t.pair.MasterAddr)
 		for !t.IsClosed() {
 			// TODO add configuraion for timeout
 			listener.SetDeadline(time.Now().Add(time.Second))
@@ -89,7 +89,7 @@ func (t *Transport) AcceptLoop() {
 				continue
 			}
 			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
+				Logger.Println("Transport\tAcceptLoop", err)
 				break
 			}
 
@@ -97,7 +97,7 @@ func (t *Transport) AcceptLoop() {
 			var magic uint32
 			err = binary.Read(conn, binary.LittleEndian, &magic)
 			if err != nil || magic != Config.Magic {
-				Logger.Printf("Invalid connection from %s", conn.RemoteAddr())
+				Logger.Printf("Transport\tInvalid connection from %s", conn.RemoteAddr())
 				conn.Close()
 				continue
 			}
@@ -116,7 +116,7 @@ func (t *Transport) AcceptLoop() {
 			// 	continue
 			// }
 
-			Logger.Printf("Transport accepted connection from %s", conn.RemoteAddr().String())
+			Logger.Printf("Transport\taccepted connection from %s", conn.RemoteAddr().String())
 			t.incomingConn <- conn
 		}
 		listener.Close()
@@ -152,7 +152,7 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 		var dto common.BLTradeDTO
 		err := binary.Read(conn, binary.LittleEndian, &dto)
 		if err != nil {
-			Logger.Println("Transport.RecvLoop", err)
+			Logger.Println("Transport\tRecvLoop", err)
 			conn.Close()
 			return
 		}
@@ -236,7 +236,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			if !ok {
 				remove(chosen)
 				if len(cases) <= SPECIAL {
-					Logger.Println("Transport.SendLoop", "request reshape")
+					Logger.Println("Transport\tSendLoop", "request reshape")
 					t.remote.reshape <- struct{}{}
 				}
 				continue
@@ -246,7 +246,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 		}
 
 		if err != nil {
-			Logger.Println("Transport.SendLoop", err)
+			Logger.Println("Transport\tSendLoop", err)
 			conn.Close()
 			return
 		}

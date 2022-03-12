@@ -126,7 +126,7 @@ func (sh *StockHandler) InitDeps() {
 }
 
 func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
-	ch := make(chan *common.BLOrderDTO)
+	ch := make(chan *common.BLOrderDTO, 128)
 	// 100ms timeout
 	timer := time.NewTimer(time.Millisecond * 100)
 	select {

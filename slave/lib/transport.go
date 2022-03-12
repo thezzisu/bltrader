@@ -66,13 +66,13 @@ func (t *Transport) Start() {
 func (t *Transport) DialLoop() {
 	raddr, err := net.ResolveTCPAddr("tcp", t.pair.MasterAddr)
 	if err != nil {
-		Logger.Println("Transport.DialLoop", err)
+		Logger.Println("Transport\tDialLoop", err)
 		t.Close()
 		return
 	}
 	laddr, err := net.ResolveTCPAddr("tcp", t.pair.SlaveAddr)
 	if err != nil {
-		Logger.Println("Transport.DialLoop", err)
+		Logger.Println("Transport\tDialLoop", err)
 		t.Close()
 		return
 	}
@@ -81,13 +81,13 @@ func (t *Transport) DialLoop() {
 		// TODO add timeout
 		conn, err := net.DialTCP("tcp", laddr, raddr)
 		if err != nil {
-			Logger.Println("Transport.DialLoop", err)
+			Logger.Println("Transport\tDialLoop", err)
 			time.Sleep(time.Second / 2)
 			continue
 		}
 		err = binary.Write(conn, binary.LittleEndian, Config.Magic)
 		if err != nil {
-			Logger.Println("Transport.DialLoop", err)
+			Logger.Println("Transport\tDialLoop", err)
 			conn.Close()
 			continue
 		}
@@ -105,7 +105,7 @@ func (t *Transport) DialLoop() {
 		// 	continue
 		// }
 
-		Logger.Printf("Transport dialed connection to %s", conn.RemoteAddr().String())
+		Logger.Printf("Transport\tDialed connection to %s", conn.RemoteAddr().String())
 		t.Handle(conn)
 	}
 }
@@ -123,7 +123,7 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 		var dto common.BLOrderDTO
 		err := binary.Read(conn, binary.LittleEndian, &dto)
 		if err != nil {
-			Logger.Println("Transport.RecvLoop", err)
+			Logger.Println("Transport\tRecvLoop", err)
 			conn.Close()
 			return
 		}
@@ -207,7 +207,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			if !ok {
 				remove(chosen)
 				if len(cases) <= SPECIAL {
-					Logger.Println("Transport.SendLoop", "request reshape")
+					Logger.Println("Transport\tSendLoop", "request reshape")
 					t.remote.reshape <- struct{}{}
 				}
 				continue
@@ -217,7 +217,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 		}
 
 		if err != nil {
-			Logger.Println("Transport.SendLoop", err)
+			Logger.Println("Transport\tSendLoop", err)
 			conn.Close()
 			return
 		}

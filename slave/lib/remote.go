@@ -56,7 +56,7 @@ func (r *Remote) Reload() {
 	m := len(pairs)
 	if n > m {
 		for i := len(pairs); i < n; i++ {
-			Logger.Printf("Remote[%s].Reload: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
+			Logger.Printf("Remote\tReload %s: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 			r.transports[i].Close()
 		}
 		r.transports = r.transports[:m]
@@ -64,18 +64,18 @@ func (r *Remote) Reload() {
 	}
 	for i := 0; i < n; i++ {
 		if pairs[i].MasterAddr != r.transports[i].pair.MasterAddr || pairs[i].SlaveAddr != r.transports[i].pair.SlaveAddr {
-			Logger.Printf("Remote[%s].Reload: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
+			Logger.Printf("Remote\tReload %s: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 			r.transports[i].Close()
 			r.transports[i] = CreateTransport(r, pairs[i])
 			r.transports[i].Start()
-			Logger.Printf("RPC[%s].Reload: new endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
+			Logger.Printf("RPC\tReload %s: new endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 		}
 	}
 	for i := len(r.transports); i < len(pairs); i++ {
 		endpoint := CreateTransport(r, pairs[i])
 		r.transports = append(r.transports, endpoint)
 		endpoint.Start()
-		Logger.Printf("RPC[%s].Reload: new endpoint %s <-> %s", r.name, endpoint.pair.MasterAddr, endpoint.pair.SlaveAddr)
+		Logger.Printf("RPC\tReload %s: new endpoint %s <-> %s", r.name, endpoint.pair.MasterAddr, endpoint.pair.SlaveAddr)
 	}
 }
 
@@ -106,7 +106,7 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) int {
 			bestK = i
 		}
 	}
-	Logger.Printf("Remote[%s].Allocate: stock %d from %d using %d\n", r.name, stock, etag, bestK)
+	Logger.Printf("Remote\tMaster %s asked me for stock %d since trade no.%d reply with %d\n", r.name, stock, etag, bestK)
 	r.transports[bestK].Allocate(stock, etag, handshake)
 	return bestK
 }
@@ -206,9 +206,7 @@ func (r *Remote) ShaperLoop() {
 		timer := time.NewTimer(interval)
 		select {
 		case <-timer.C:
-			Logger.Printf("Remote[%s].ShaperLoop: triggered by timer\n", r.name)
 		case <-r.reshape:
-			Logger.Printf("Remote[%s].ShaperLoop: triggered by transport\n", r.name)
 		}
 		r.transportMutex.RLock()
 
@@ -225,7 +223,7 @@ func (r *Remote) ShaperLoop() {
 			}
 		}
 		if max >= 2 && max-min > 0 {
-			Logger.Printf("Remote[%s].ShaperLoop: re-allocate %d", r.name, k)
+			Logger.Printf("Remote\tShaper master %s with transport %d", r.name, k)
 			r.transports[k].Shape()
 		}
 		r.transportMutex.RUnlock()
@@ -239,7 +237,7 @@ func (r *Remote) Start() {
 }
 
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrder {
-	Logger.Printf("Remote[%s].Subscribe: stock %d since %d\n", r.name, stock, etag)
+	Logger.Printf("Remote\tAsk master %s for stock %d since order no.%d\n", r.name, stock, etag)
 	result := make(chan chan *common.BLOrder)
 	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, result: result}
 	ch := <-result
