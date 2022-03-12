@@ -3,7 +3,7 @@ import h5py
 import struct
 
 # DATA_ROOT = "../.data/"
-DATA_ROOT = "D:\\Downloads\\"
+DATA_ROOT = "../datas/100x100x100/"
 P_PRICE = "price"
 P_ORDERID = "order_id"
 P_VOLUME = "volume"

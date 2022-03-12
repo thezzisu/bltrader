@@ -328,38 +328,71 @@ func (blrunner *BLRunner) InsertOrder(rbt *treemap.Map, order *ShortOrder) {
 	}
 }
 
+const Cksize = 65536
+
+type FChunk struct {
+	buf  *bytes.Buffer
+	n    int
+	file *os.File
+}
+
+func (fc *FChunk) Bind(f *os.File) {
+	fc.buf = bytes.NewBuffer(nil)
+	fc.buf.Grow(Cksize)
+	fc.file = f
+}
+
+func (fc *FChunk) Read() *bytes.Buffer {
+	if fc.n == 0 {
+		rb := make([]byte, Cksize)
+		if fc.n, _ = fc.file.Read(rb); fc.n <= 0 {
+			return nil
+		}
+		fc.buf = bytes.NewBuffer(rb)
+	}
+	fc.n -= 16
+	return fc.buf
+}
+
+func (fc *FChunk) Write() *bytes.Buffer {
+	if fc.n == Cksize {
+		fc.file.Write(fc.buf.Bytes())
+		fc.buf = bytes.NewBuffer(nil)
+		fc.n = 0
+	}
+	fc.n += 16
+	return fc.buf
+}
+
+func (fc *FChunk) WFlush() {
+	fc.file.Write(fc.buf.Bytes())
+}
+
 func (so *ShortOrder) Encode() []byte {
 	buf := bytes.NewBuffer(nil)
-	err1 := binary.Write(buf, binary.LittleEndian, so.OrderId)
-	err2 := binary.Write(buf, binary.LittleEndian, so.Price)
-	err3 := binary.Write(buf, binary.LittleEndian, so.Volume)
-	if err1 != nil || err2 != nil || err3 != nil {
-		return nil
-	}
+	_ = binary.Write(buf, binary.LittleEndian, so.OrderId)
+	_ = binary.Write(buf, binary.LittleEndian, so.Price)
+	_ = binary.Write(buf, binary.LittleEndian, so.Volume)
 	return buf.Bytes()
 }
 
-func (so *ShortOrder) Decode(data []byte) {
-	buf := bytes.NewBuffer(data)
+func (so *ShortOrder) Read(chunk *FChunk) bool {
+	// return true if file reaches eof
+	buf := chunk.Read()
+	if buf == nil {
+		return true
+	}
 	_ = binary.Read(buf, binary.LittleEndian, &so.OrderId)
 	_ = binary.Read(buf, binary.LittleEndian, &so.Price)
 	_ = binary.Read(buf, binary.LittleEndian, &so.Volume)
-}
-
-func (so *ShortOrder) Read(rFile *os.File) bool {
-	// return true if file reaches eof
-	buf := make([]byte, 16)
-	if _, err := rFile.Read(buf); err != nil {
-		return true
-	}
-	rb := bytes.NewReader(buf)
-	_, _ = rb.Read(buf)
-	so.Decode(buf)
 	return false
 }
 
-func (so *ShortOrder) Write(wFile *os.File) {
-	_, _ = wFile.Write(so.Encode())
+func (so *ShortOrder) Write(chunk *FChunk) {
+	buf := chunk.Write()
+	_ = binary.Write(buf, binary.LittleEndian, so.OrderId)
+	_ = binary.Write(buf, binary.LittleEndian, so.Price)
+	_ = binary.Write(buf, binary.LittleEndian, so.Volume)
 }
 
 /*
@@ -377,8 +410,8 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 	blrunner.upperPrice = upper
 	blrunner.queuePool = &sync.Pool{New: func() interface{} { return new(LinkNode) }}
 
-	blrunner.buyVolume, blrunner.sellVolume = 0, 0
-	return
+	//blrunner.buyVolume, blrunner.sellVolume = 0, 0
+	//return
 	// Disable load cache
 
 	_, errB := os.Stat("./buy_cache")
@@ -393,14 +426,16 @@ func (blrunner *BLRunner) Load(lower float64, upper float64) {
 
 	ReadCache := func(rFile *os.File, sVolume *int32, tree *treemap.Map) {
 		var order ShortOrder
-		end := order.Read(rFile)
+		chunk := new(FChunk)
+		chunk.Bind(rFile)
+		end := order.Read(chunk)
 		if end {
 			return
 		}
 		*sVolume = order.Volume
 		fmt.Printf("sVolume %d\n", *sVolume)
 		for {
-			end = order.Read(rFile)
+			end = order.Read(chunk)
 			if end {
 				return
 			}
@@ -421,19 +456,20 @@ func (blrunner *BLRunner) Dump() {
 		panic("Failed to write cache")
 	}
 
-	fmt.Printf("[Dump] buy %d sell %d\n", blrunner.buyVolume, blrunner.sellVolume) // debug output
-
 	WriteCache := func(wFile *os.File, sVolume int32, tree *treemap.Map) {
+		chunk := new(FChunk)
+		chunk.Bind(wFile)
 		var order ShortOrder
 		order.Volume = sVolume
-		order.Write(wFile)
+		order.Write(chunk)
 		it := tree.Iterator()
 		for it.Next() {
 			u := it.Value().(*Queue).head
 			for ; u != nil; u = u.next {
-				u.order.Write(wFile)
+				u.order.Write(chunk)
 			}
 		}
+		chunk.WFlush()
 	}
 	WriteCache(bFile, blrunner.buyVolume, blrunner.buyTree)
 	WriteCache(sFile, blrunner.sellVolume, blrunner.sellTree)

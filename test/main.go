@@ -117,6 +117,7 @@ func main() {
 				_, _ = fmt.Sscanf(line, "%d%d%f%d", &tr.BidId, &tr.AskId, &tr.Price, &tr.Volume)
 				trades[i] = append(trades[i], tr)
 			}
+			trade_size[i] = len(trades[i])
 			tradeFile.Close()
 		}
 	}()
@@ -162,8 +163,8 @@ func main() {
 		_ = os.Remove("./sell_cache")
 	}
 	result := make([]common.BLTrade, 0)
-	lower_price := -10000.0
-	upper_price := 10000.0
+	lower_price := -100000.0
+	upper_price := 100000.0
 	func() {
 		blr := new(core.BLRunner)
 		blr.Load(lower_price, upper_price)
