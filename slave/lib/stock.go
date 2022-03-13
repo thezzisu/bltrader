@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"sync"
 	"time"
 
 	"github.com/thezzisu/bltrader/common"
@@ -39,6 +40,7 @@ type TradeStore struct {
 	offset int
 	cacheL []common.BLTrade
 	cacheR []common.BLTrade
+	mutex  sync.RWMutex
 }
 
 func CreateTradeStore() *TradeStore {
@@ -49,6 +51,9 @@ func CreateTradeStore() *TradeStore {
 }
 
 func (ts *TradeStore) Append(adata []common.BLTrade) {
+	ts.mutex.Lock()
+	defer ts.mutex.Unlock()
+
 	ts.cacheR = append(ts.cacheR, adata...)
 	if len(ts.cacheR) > ChunkSize {
 		ts.cacheL = ts.cacheR[0:ChunkSize]
@@ -73,6 +78,9 @@ func CreateTradeReader(ts *TradeStore) *TradeReader {
 }
 
 func (t *TradeReader) Seek(etag int32) {
+	t.ts.mutex.RLock()
+	defer t.ts.mutex.RUnlock()
+
 	//find the first pos >= etag
 	if t.offset*ChunkSize > int(etag) {
 		t.incR = false
@@ -92,6 +100,9 @@ func (t *TradeReader) Seek(etag int32) {
 }
 
 func (t *TradeReader) Next() *common.BLTrade {
+	t.ts.mutex.RLock()
+	defer t.ts.mutex.RUnlock()
+
 	if !t.incR {
 		if t.ptr == len(t.ts.cacheL) {
 			t.incR = true
@@ -198,7 +209,7 @@ func (sh *StockHandler) SendLoop(name string) {
 
 func (sh *StockHandler) RecvLoop(name string) {
 	remote := sh.hub.remotes[name]
-	// peeker := sh.peekers[name]
+	peeker := sh.peekers[name]
 	etag := int32(0)
 	timeout := time.Millisecond * time.Duration(Config.StockHandlerTimeoutMs)
 subscribe:
@@ -221,10 +232,7 @@ subscribe:
 					break subscribe
 				}
 				etag = order.OrderId
-				if etag%100000 == 0 {
-					Logger.Println(etag)
-				}
-				// peeker.ch <- order
+				peeker.ch <- order
 
 			case <-timer.C:
 				Logger.Printf("StockHandler[%d].RecvLoop(%s) timeout\n", sh.stockId, name)
