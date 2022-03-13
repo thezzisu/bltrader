@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/thezzisu/bltrader/common"
+	"github.com/thezzisu/bltrader/core"
 )
 
 type Peeker struct {
@@ -16,14 +17,14 @@ func CreatePeeker() *Peeker {
 	return &Peeker{ch: ch}
 }
 
-func Peek(p *Peeker) *common.BLOrder {
+func (p *Peeker) Peek() *common.BLOrder {
 	if p.last == nil {
 		p.last = <-p.ch
 	}
 	return p.last
 }
 
-func Get(p *Peeker) *common.BLOrder {
+func (p *Peeker) Get() *common.BLOrder {
 	if p.last == nil {
 		return <-p.ch
 	}
@@ -32,22 +33,79 @@ func Get(p *Peeker) *common.BLOrder {
 	return last
 }
 
-type TradeReader struct {
-	//
+var ChunkSize int
+
+type TradeStore struct {
+	offset int
+	cacheL []common.BLTrade
+	cacheR []common.BLTrade
 }
 
-func CreateTradeReader() *TradeReader {
+func CreateTradeStore() *TradeStore {
+	return &TradeStore{
+		cacheL: make([]common.BLTrade, 0),
+		cacheR: make([]common.BLTrade, 0),
+	}
+}
+
+func (ts *TradeStore) Append(adata []common.BLTrade) {
+	ts.cacheR = append(ts.cacheR, adata...)
+	if len(ts.cacheR) > ChunkSize {
+		ts.cacheL = ts.cacheR[0:ChunkSize]
+		ts.cacheR = ts.cacheR[ChunkSize:]
+		ts.offset++
+	}
+}
+
+type TradeReader struct {
+	ts     *TradeStore
+	offset int
+	ptr    int
+	incR   bool
+}
+
+func CreateTradeReader(ts *TradeStore) *TradeReader {
 	t := new(TradeReader)
+	t.ts = ts
+	t.ptr = 0
+	t.incR = true
 	return t
 }
 
 func (t *TradeReader) Seek(etag int32) {
-	//
+	//find the first pos >= etag
+	if t.offset*ChunkSize > int(etag) {
+		t.incR = false
+	}
+	if t.offset*ChunkSize+len(t.ts.cacheR) <= int(etag) {
+		t.ptr = len(t.ts.cacheR)
+		t.incR = true
+		return
+	}
+	// [offset - 1 * C,offset * C)
+	// [offset * C,offset * C + len)
+	if t.incR {
+		t.ptr = int(etag) - t.offset*ChunkSize
+	} else {
+		t.ptr = int(etag) - (t.offset-1)*ChunkSize
+	}
 }
 
 func (t *TradeReader) Next() *common.BLTrade {
-	time.Sleep(time.Hour)
-	return nil
+	if !t.incR {
+		if t.ptr == len(t.ts.cacheL) {
+			t.incR = true
+			t.ptr = 0
+			return &t.ts.cacheR[0]
+		}
+		t.ptr++
+		return &t.ts.cacheL[t.ptr-1]
+	}
+	if t.ptr == len(t.ts.cacheR) {
+		return nil
+	}
+	t.ptr++
+	return &t.ts.cacheR[t.ptr-1]
 }
 
 type StockSubscribeRequest struct {
@@ -61,6 +119,7 @@ type StockHandler struct {
 	subscribes map[string]chan *StockSubscribeRequest
 	peekers    map[string]*Peeker
 	readers    map[string]*TradeReader
+	tradest    *TradeStore
 }
 
 func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
@@ -177,14 +236,44 @@ subscribe:
 	sh.hub.wg.Done()
 }
 
+func (sh *StockHandler) MergeLoop() {
+	blr := new(core.BLRunner)
+	lower, upper := -10000.0, 10000.0
+	//TODO: idk where to find bounds
+	blr.Load(lower, upper)
+	for {
+		key := ""
+		v := int32(2000000)
+		for k, pk := range sh.peekers {
+			u := pk.Peek()
+			if u == nil {
+				continue
+			}
+			if u.OrderId < v {
+				key, v = k, u.OrderId
+			}
+		}
+		if key == "" {
+			break
+		}
+		ord := sh.peekers[key].Get()
+		trades := blr.Dispatch(ord)
+		sh.tradest.Append(trades)
+	}
+	Logger.Printf("StockHandler[%d].MergeLoop done\n", sh.stockId)
+}
+
 func (sh *StockHandler) Start() {
+	ChunkSize = 1000000
+	sh.tradest = CreateTradeStore()
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)
 		sh.peekers[master.Name] = CreatePeeker()
-		sh.readers[master.Name] = CreateTradeReader()
+		sh.readers[master.Name] = CreateTradeReader(sh.tradest)
 
 		sh.hub.wg.Add(1)
 		go sh.SendLoop(master.Name)
 		go sh.RecvLoop(master.Name)
 	}
+	go sh.MergeLoop()
 }
