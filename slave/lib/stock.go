@@ -134,8 +134,18 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 
 func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTradeDTO {
 	ch := make(chan *common.BLTradeDTO)
-	sh.subscribes[name] <- &StockSubscribeRequest{etag: etag, ch: ch}
-	return ch
+	timer := time.NewTimer(time.Millisecond * 100)
+	select {
+	case sh.subscribes[name] <- &StockSubscribeRequest{etag: etag, ch: ch}:
+		if !timer.Stop() {
+			<-timer.C
+		}
+		return ch
+
+	case <-timer.C:
+		close(ch)
+		return nil
+	}
 }
 
 func (sh *StockHandler) SendLoop(name string) {
@@ -188,16 +198,22 @@ func (sh *StockHandler) SendLoop(name string) {
 
 func (sh *StockHandler) RecvLoop(name string) {
 	remote := sh.hub.remotes[name]
-	peeker := sh.peekers[name]
+	// peeker := sh.peekers[name]
 	etag := int32(0)
+	timeout := time.Millisecond * time.Duration(Config.StockHandlerTimeoutMs)
 subscribe:
 	for {
 		ch := remote.Subscribe(sh.stockId, etag)
+		if ch == nil {
+			continue
+		}
 		for {
-			// TODO add configuration for timeout
-			timer := time.NewTimer(time.Second * 10)
+			timer := time.NewTimer(timeout)
 			select {
 			case order, ok := <-ch:
+				if !timer.Stop() {
+					<-timer.C
+				}
 				if !ok {
 					break
 				}
@@ -205,7 +221,10 @@ subscribe:
 					break subscribe
 				}
 				etag = order.OrderId
-				peeker.ch <- order
+				if etag%100000 == 0 {
+					Logger.Println(etag)
+				}
+				// peeker.ch <- order
 
 			case <-timer.C:
 				Logger.Printf("StockHandler[%d].RecvLoop(%s) timeout\n", sh.stockId, name)

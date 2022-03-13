@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"math/rand"
 	"net"
 	"os"
 	"reflect"
@@ -14,7 +15,7 @@ import (
 	"github.com/thezzisu/bltrader/common"
 )
 
-type TransportAllocateRequest struct {
+type TransportCmd struct {
 	stock     int32
 	etag      int32
 	handshake int32
@@ -28,7 +29,7 @@ type Transport struct {
 	dieOnce           sync.Once
 	incomingConn      chan net.Conn
 	subscriptionCount int32
-	allocates         chan TransportAllocateRequest
+	cmds              chan TransportCmd
 }
 
 func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
@@ -40,7 +41,7 @@ func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
 	t.die = make(chan struct{})
 	t.incomingConn = make(chan net.Conn)
 	t.subscriptionCount = 0
-	t.allocates = make(chan TransportAllocateRequest)
+	t.cmds = make(chan TransportCmd, 16)
 
 	return t
 }
@@ -68,18 +69,18 @@ func (t *Transport) Start() {
 func (t *Transport) AcceptLoop() {
 	addr, err := net.ResolveTCPAddr("tcp", t.pair.MasterAddr)
 	if err != nil {
-		Logger.Println("Transport.AcceptLoop", err)
+		Logger.Println("Transport\tAcceptLoop", err)
 		t.Close()
 		return
 	}
 	for !t.IsClosed() {
 		listener, err := net.ListenTCP("tcp", addr)
 		if err != nil {
-			Logger.Println("Transport.AcceptLoop", err)
+			Logger.Println("Transport\tAcceptLoop", err)
 			time.Sleep(time.Second / 2)
 			continue
 		}
-		Logger.Printf("Transport listening on %s", t.pair.MasterAddr)
+		Logger.Printf("Transport\tListening on %s", t.pair.MasterAddr)
 		for !t.IsClosed() {
 			// TODO add configuraion for timeout
 			listener.SetDeadline(time.Now().Add(time.Second))
@@ -88,7 +89,7 @@ func (t *Transport) AcceptLoop() {
 				continue
 			}
 			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
+				Logger.Println("Transport\tAcceptLoop", err)
 				break
 			}
 
@@ -96,27 +97,26 @@ func (t *Transport) AcceptLoop() {
 			var magic uint32
 			err = binary.Read(conn, binary.LittleEndian, &magic)
 			if err != nil || magic != Config.Magic {
-				Logger.Printf("Invalid connection from %s", conn.RemoteAddr())
+				Logger.Printf("Transport\tInvalid connection from %s", conn.RemoteAddr())
 				conn.Close()
 				continue
 			}
 
 			// Set socket options
-			err = conn.SetKeepAlive(true)
-			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
-				conn.Close()
-				continue
-			}
-			// TODO add configuration
-			conn.SetKeepAlivePeriod(time.Second * 10)
-			if err != nil {
-				Logger.Println("Transport.AcceptLoop", err)
-				conn.Close()
-				continue
-			}
+			// err = conn.SetKeepAlive(true)
+			// if err != nil {
+			// 	Logger.Println("Transport.AcceptLoop", err)
+			// 	conn.Close()
+			// 	continue
+			// }
+			// conn.SetKeepAlivePeriod(time.Second * 10)
+			// if err != nil {
+			// 	Logger.Println("Transport.AcceptLoop", err)
+			// 	conn.Close()
+			// 	continue
+			// }
 
-			Logger.Printf("Transport accepted connection from %s", conn.RemoteAddr().String())
+			Logger.Printf("Transport\taccepted connection from %s", conn.RemoteAddr().String())
 			t.incomingConn <- conn
 		}
 		listener.Close()
@@ -152,7 +152,7 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 		var dto common.BLTradeDTO
 		err := binary.Read(conn, binary.LittleEndian, &dto)
 		if err != nil {
-			Logger.Println("Transport.RecvLoop", err)
+			Logger.Println("Transport\tRecvLoop", err)
 			conn.Close()
 			return
 		}
@@ -164,12 +164,24 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	// TODO consider MTU
 	writer := bufio.NewWriterSize(conn, 1400)
 	var err error
-	cases := make([]reflect.SelectCase, 3)
+
+	const SPECIAL = 3
+	cases := make([]reflect.SelectCase, SPECIAL)
+	hsids := make([]int32, SPECIAL)
 	cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.remote.command)}
-	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.allocates)}
+	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.cmds)}
+
+	remove := func(pos int) {
+		cases[pos] = cases[len(cases)-1]
+		cases = cases[:len(cases)-1]
+		hsids[pos] = hsids[len(hsids)-1]
+		hsids = hsids[:len(hsids)-1]
+		atomic.AddInt32(&t.subscriptionCount, -1)
+	}
 
 	for {
-		timer := time.NewTimer(time.Second / 10)
+		// flush data every 100ms
+		timer := time.NewTimer(time.Millisecond * 100)
 		cases[2] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(timer.C),
@@ -177,31 +189,67 @@ func (t *Transport) SendLoop(conn net.Conn) {
 
 		chosen, recv, ok := reflect.Select(cases)
 		switch chosen {
-		case 0: // Handle command
+		case 0: // Handle remote's command
+			if !timer.Stop() {
+				<-timer.C
+			}
 			dto := recv.Interface().(*common.BLOrderDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
 
-		case 1: // Handle allocate
-			req := recv.Interface().(TransportAllocateRequest)
-			ch := t.hub.stocks[req.stock].Subscribe(req.etag)
-			cases = append(cases, reflect.SelectCase{
-				Dir:  reflect.SelectRecv,
-				Chan: reflect.ValueOf(ch),
-			})
-			atomic.AddInt32(&t.subscriptionCount, 1)
-			err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
-				Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
-				OrderId: req.handshake,
-			})
+		case 1: // Handle transport's command
+			if !timer.Stop() {
+				<-timer.C
+			}
+			req := recv.Interface().(TransportCmd)
+			switch req.stock {
+			case -1: // Unsubscribe
+				pos := 0
+				for i := SPECIAL; i < len(cases); i++ {
+					if hsids[i] == req.handshake {
+						pos = i
+					}
+				}
+				if pos != 0 {
+					remove(pos)
+				}
+
+			case -2: // Shape
+				if len(cases) <= SPECIAL {
+					continue
+				}
+				remove(rand.Intn(len(cases)-SPECIAL) + SPECIAL)
+
+			default: //Subscribe
+				ch := t.hub.stocks[req.stock].Subscribe(req.etag)
+				if ch != nil {
+					cases = append(cases, reflect.SelectCase{
+						Dir:  reflect.SelectRecv,
+						Chan: reflect.ValueOf(ch),
+					})
+					hsids = append(hsids, req.handshake)
+					atomic.AddInt32(&t.subscriptionCount, 1)
+
+					err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
+						Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
+						OrderId: req.handshake,
+					})
+					Logger.Println("DEBUG send CmdSubRes")
+				}
+			}
 
 		case 2: //Handle timeout
 			err = writer.Flush()
 
 		default:
+			if !timer.Stop() {
+				<-timer.C
+			}
 			if !ok {
-				cases[chosen] = cases[len(cases)-1]
-				cases = cases[:len(cases)-1]
-				atomic.AddInt32(&t.subscriptionCount, -1)
+				remove(chosen)
+				if len(cases) <= SPECIAL {
+					Logger.Println("Transport\tSendLoop", "request reshape")
+					t.remote.reshape <- struct{}{}
+				}
 				continue
 			}
 			dto := recv.Interface().(*common.BLOrderDTO)
@@ -209,7 +257,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 		}
 
 		if err != nil {
-			Logger.Println("Transport.SendLoop", err)
+			Logger.Println("Transport\tSendLoop", err)
 			conn.Close()
 			return
 		}
@@ -217,5 +265,14 @@ func (t *Transport) SendLoop(conn net.Conn) {
 }
 
 func (t *Transport) Allocate(stock int32, etag int32, handshake int32) {
-	t.allocates <- TransportAllocateRequest{stock, etag, handshake}
+	atomic.AddInt32(&t.subscriptionCount, 1)
+	t.cmds <- TransportCmd{stock, etag, handshake}
+}
+
+func (t *Transport) Unallocate(handshake int32) {
+	t.cmds <- TransportCmd{-1, 0, handshake}
+}
+
+func (t *Transport) Shape() {
+	t.cmds <- TransportCmd{-2, 0, 0}
 }

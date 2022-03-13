@@ -2,19 +2,21 @@ package lib
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/thezzisu/bltrader/common"
 )
 
 type RemoteSubscribeRequest struct {
-	stock int32
-	etag  int32
-	ch    chan *common.BLOrder
+	stock  int32
+	etag   int32
+	result chan chan *common.BLOrder
 }
 
 type Remote struct {
@@ -26,6 +28,7 @@ type Remote struct {
 	incoming       chan *common.BLOrderDTO
 	subscribes     chan RemoteSubscribeRequest
 	command        chan *common.BLTradeDTO
+	reshape        chan struct{}
 }
 
 func CreateRemote(hub *Hub, name string) *Remote {
@@ -39,6 +42,7 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.incoming = make(chan *common.BLOrderDTO)
 	r.subscribes = make(chan RemoteSubscribeRequest)
 	r.command = make(chan *common.BLTradeDTO)
+	r.reshape = make(chan struct{})
 	return r
 }
 
@@ -52,7 +56,7 @@ func (r *Remote) Reload() {
 	m := len(pairs)
 	if n > m {
 		for i := len(pairs); i < n; i++ {
-			Logger.Printf("Remote[%s].Reload: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
+			Logger.Printf("Remote\tReload %s: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 			r.transports[i].Close()
 		}
 		r.transports = r.transports[:m]
@@ -60,18 +64,18 @@ func (r *Remote) Reload() {
 	}
 	for i := 0; i < n; i++ {
 		if pairs[i].MasterAddr != r.transports[i].pair.MasterAddr || pairs[i].SlaveAddr != r.transports[i].pair.SlaveAddr {
-			Logger.Printf("Remote[%s].Reload: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
+			Logger.Printf("Remote\tReload %s: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 			r.transports[i].Close()
 			r.transports[i] = CreateTransport(r, pairs[i])
 			r.transports[i].Start()
-			Logger.Printf("RPC[%s].Reload: new endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
+			Logger.Printf("RPC\tReload %s: new endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 		}
 	}
 	for i := len(r.transports); i < len(pairs); i++ {
 		endpoint := CreateTransport(r, pairs[i])
 		r.transports = append(r.transports, endpoint)
 		endpoint.Start()
-		Logger.Printf("RPC[%s].Reload: new endpoint %s <-> %s", r.name, endpoint.pair.MasterAddr, endpoint.pair.SlaveAddr)
+		Logger.Printf("RPC\tReload %s: new endpoint %s <-> %s", r.name, endpoint.pair.MasterAddr, endpoint.pair.SlaveAddr)
 	}
 }
 
@@ -85,13 +89,13 @@ func (r *Remote) MainLoop() {
 	}
 }
 
-func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
+func (r *Remote) Allocate(stock int32, etag int32, handshake int32) int {
 	r.transportMutex.RLock()
 	defer r.transportMutex.RUnlock()
 	if len(r.transports) == 0 {
 		// Since we do not have any transports,
 		// just do not allocate at all!
-		return
+		return -1
 	}
 	bestK, bestV := 0, atomic.LoadInt32(&r.transports[0].subscriptionCount)
 	for i := 1; i < len(r.transports); i++ {
@@ -102,65 +106,154 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) {
 			bestK = i
 		}
 	}
-	Logger.Printf("Remote[%s].Allocate: stock %d from %d using %d\n", r.name, stock, etag, bestK)
+	Logger.Printf("Remote\tMaster %s asked me for stock %d since trade no.%d reply with %d\n", r.name, stock, etag, bestK)
 	r.transports[bestK].Allocate(stock, etag, handshake)
+	return bestK
 }
 
 func (r *Remote) RecvLoop() {
 	pending := make(map[int32]RemoteSubscribeRequest)
+	pendingTimeout := make(chan int32)
+
 	subscription := make(map[int32]chan *common.BLOrder)
+	hsids := make(map[int32]int32)
 	handshake := int32(0)
+
+	allocations := make(map[int32]int)
+
+	timeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
 	for {
 		select {
 		case dto := <-r.incoming:
 			if common.IsCmd(dto.Mix) {
-				// Logger.Printf("Remote[%s].RecvLoop: got command\n", r.name)
 				cmd, payload := common.DecodeCmd(dto.Mix)
-				// Command
 				switch cmd {
-				case common.CmdSubReq:
-					// Subscribe Request
-					// Use payload as StkId, Price as etag, OrderId as handshake
-					go r.Allocate(payload, dto.Price, dto.OrderId)
+				case common.CmdSubReq: // Subscribe request, use payload as StkId, Price as etag, OrderId as handshake
+					Logger.Println("DEBUG CmdSubReq")
+					allocated := r.Allocate(payload, dto.Price, dto.OrderId)
+					if allocated == -1 {
+						allocations[payload] = allocated
+					}
 
-				case common.CmdSubRes:
-					// Subscribe Response
-					// Use BidId as handshake
+				case common.CmdSubRes: // Subscribe response, use OrderId as handshake
+					Logger.Println("DEBUG CmdSubRes")
 					if req, ok := pending[dto.OrderId]; ok {
-						subscription[req.stock] = req.ch
+						ch := make(chan *common.BLOrder)
+						subscription[req.stock] = ch
+						hsids[req.stock] = dto.OrderId
+						req.result <- ch
 						delete(pending, dto.OrderId)
+					}
+
+				case common.CmdUnsub:
+					Logger.Println("DEBUG CmdUnsub")
+					if k, ok := allocations[payload]; ok {
+						r.transportMutex.RLock()
+						if len(r.transports) > k { // Make sure we have that transport
+							r.transports[k].Unallocate(payload)
+						}
+						r.transportMutex.RUnlock()
+						delete(allocations, payload)
 					}
 				}
 			} else {
-				// Data
 				var order common.BLOrder
 				common.UnmarshalOrderDTO(dto, &order)
 				if ch, ok := subscription[order.StkCode]; ok {
-					ch <- &order
+					// 100ms data processing delay
+					timer := time.NewTimer(time.Millisecond * 100)
+					select {
+					case ch <- &order:
+						if !timer.Stop() {
+							<-timer.C
+						}
+
+					case <-timer.C:
+						close(ch)
+						delete(subscription, order.StkCode)
+						Logger.Println("DEBUG send CmdUnsub")
+						r.command <- &common.BLTradeDTO{
+							Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
+							AskId: hsids[order.StkCode],
+						}
+					}
+				} else {
+					Logger.Println("DEBUG send CmdUnsub")
+					r.command <- &common.BLTradeDTO{
+						Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
+						AskId: hsids[order.StkCode],
+					}
 				}
+			}
+
+		case hs := <-pendingTimeout:
+			if req, ok := pending[hs]; ok {
+				req.result <- nil
+				delete(pending, hs)
 			}
 
 		case req := <-r.subscribes:
 			delete(subscription, req.stock)
 			handshake++
 			pending[handshake] = req
+			Logger.Println("DEBUG send CmdSubReq")
 			r.command <- &common.BLTradeDTO{
 				Mix:   common.EncodeCmd(common.CmdSubReq, req.stock),
 				AskId: handshake,
 				Price: req.etag,
 			}
+			go func(handshake int32) {
+				time.Sleep(timeout)
+				pendingTimeout <- handshake
+			}(handshake)
 		}
+	}
+}
+
+func (r *Remote) ShaperLoop() {
+	interval := time.Millisecond * time.Duration(Config.ShaperIntervalMs)
+	for {
+		timer := time.NewTimer(interval)
+		select {
+		case <-timer.C:
+		case <-r.reshape:
+			if !timer.Stop() {
+				<-timer.C
+			}
+		}
+		r.transportMutex.RLock()
+
+		min, max := int32(math.MaxInt32), int32(0)
+		k := 0
+		for i, t := range r.transports {
+			count := atomic.LoadInt32(&t.subscriptionCount)
+			if count < min {
+				min = count
+			}
+			if count > max {
+				max = count
+				k = i
+			}
+		}
+		if max >= 2 && max-min > 0 {
+			Logger.Printf("Remote\tShaper master %s with transport %d", r.name, k)
+			r.transports[k].Shape()
+		}
+		r.transportMutex.RUnlock()
 	}
 }
 
 func (r *Remote) Start() {
 	go r.MainLoop()
 	go r.RecvLoop()
+	go r.ShaperLoop()
 }
 
+// **NOTICE** return value might be nil
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrder {
-	Logger.Printf("Remote[%s].Subscribe: stock %d since %d\n", r.name, stock, etag)
-	ch := make(chan *common.BLOrder)
-	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, ch: ch}
+	Logger.Printf("Remote\tAsk master %s for stock %d since order no.%d\n", r.name, stock, etag)
+	result := make(chan chan *common.BLOrder)
+	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, result: result}
+	ch := <-result
 	return ch
 }

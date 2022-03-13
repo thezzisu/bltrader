@@ -210,9 +210,19 @@ func (sh *StockHandler) InitDeps() {
 }
 
 func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
-	ch := make(chan *common.BLOrderDTO)
-	sh.subscribes <- &StockSubscribeRequest{etag: etag, ch: ch}
-	return ch
+	ch := make(chan *common.BLOrderDTO, 128)
+	timer := time.NewTimer(time.Millisecond * 100)
+	select {
+	case sh.subscribes <- &StockSubscribeRequest{etag: etag, ch: ch}:
+		if !timer.Stop() {
+			<-timer.C
+		}
+		return ch
+
+	case <-timer.C:
+		close(ch)
+		return nil
+	}
 }
 
 func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
@@ -228,9 +238,11 @@ func (sh *StockHandler) SendLoop() {
 	ch := make(chan *common.BLOrderDTO)
 	info := CreateStockInfo(sh.stockId)
 
-	replace := func(req *StockSubscribeRequest) {
+	replace := func(req *StockSubscribeRequest, eager bool) {
 		Logger.Printf("StockHandler[%d].SendLoop: slave subscribed since %d\n", sh.stockId, req.etag)
-		close(ch)
+		if !eager {
+			close(ch)
+		}
 		ch = req.ch
 		info.Seek(req.etag)
 	}
@@ -249,25 +261,21 @@ func (sh *StockHandler) SendLoop() {
 			select {
 			// New subscriber
 			case req := <-sh.subscribes:
-				replace(req)
+				replace(req, false)
 
 			// EOF sent, waiting for new subscriber
 			case ch <- dto:
+				close(ch)
 				req := <-sh.subscribes
-				replace(req)
+				replace(req, true)
 			}
 			continue
 		}
 
 		if dep, ok := sh.deps[order.OrderId]; ok {
-			select {
-			case req := <-sh.subscribes:
-				replace(req)
+			<-dep.ch
+			if dep.val > dep.arg {
 				continue
-			case <-dep.ch:
-				if dep.val > dep.arg {
-					continue
-				}
 			}
 		}
 
@@ -276,7 +284,7 @@ func (sh *StockHandler) SendLoop() {
 
 		select {
 		case req := <-sh.subscribes:
-			replace(req)
+			replace(req, false)
 		case ch <- dto:
 		}
 	}
@@ -291,16 +299,22 @@ func (sh *StockHandler) RecvLoop() {
 	if err != nil {
 		Logger.Fatalf("StockHandler[%d].RecvLoop %v\n", sh.stockId, err)
 	}
+	timeout := time.Millisecond * time.Duration(Config.StockRecvTimeoutMs)
 	writer := bufio.NewWriter(f)
 	lastId := int32(0)
 subscribe:
 	for {
 		ch := sh.remote.Subscribe(sh.stockId, lastId)
+		if ch == nil {
+			continue
+		}
 		for {
-			// TODO add configuration for this timeout
-			timer := time.NewTimer(time.Second * 10)
+			timer := time.NewTimer(timeout)
 			select {
 			case trade, ok := <-ch:
+				if !timer.Stop() {
+					<-timer.C
+				}
 				if !ok {
 					break
 				}
