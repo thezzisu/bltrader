@@ -18,6 +18,7 @@ pub struct IOConfig {
 pub fn load_config() -> Result<IOConfig, Box<dyn std::error::Error>> {
     let root = dirs::config_dir().unwrap();
     let path = root.join("bltrader").join("io.json");
+    println!("Load config from {}", path.display());
     let content = read_to_string(path)?;
     let config: IOConfig = serde_json::from_str(&content)?;
     Ok(config)

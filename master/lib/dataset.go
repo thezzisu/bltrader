@@ -14,7 +14,7 @@ import (
 var lastPrev []float64
 var ChunkCount int
 
-func init() {
+func InitDataset() {
 	lastPrev = loadDataSetFloat64(path.Join(Config.CacheDir, "stage-1", "last_prev.bin"))
 	Logger.Printf("last prev loaded (%d)\n", len(lastPrev))
 	ChunkCount = 0

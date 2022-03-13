@@ -2,6 +2,7 @@ package lib
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path"
@@ -25,13 +26,19 @@ type SlaveConfig struct {
 }
 
 var Config SlaveConfig
+var Profile string
 
 func init() {
+	flag.StringVar(&Profile, "profile", "slave", "profile name")
+}
+
+func InitConfig() {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
 		Logger.Fatal(err)
 	}
-	configPath = path.Join(configPath, "bltrader", "slave.json")
+	configPath = path.Join(configPath, "bltrader", fmt.Sprintf("%s.json", Profile))
+	Logger.Println("Load config from", configPath)
 	configContent, err := os.ReadFile(configPath)
 	if err != nil {
 		Logger.Fatal(err)

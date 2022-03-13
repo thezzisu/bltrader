@@ -2,6 +2,7 @@ package lib
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path"
@@ -29,13 +30,19 @@ type MasterConfig struct {
 var Config MasterConfig
 var StockMap map[int32]string
 var SlaveMap map[string][]int32
+var Profile string
 
 func init() {
+	flag.StringVar(&Profile, "profile", "master", "profile name")
+}
+
+func InitConfig() {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
 		Logger.Fatal(err)
 	}
-	configPath = path.Join(configPath, "bltrader", "master.json")
+	configPath = path.Join(configPath, "bltrader", fmt.Sprintf("%s.json", Profile))
+	Logger.Println("Load config from", configPath)
 	configContent, err := os.ReadFile(configPath)
 	if err != nil {
 		Logger.Fatal(err)

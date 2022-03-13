@@ -1,0 +1,10 @@
+{
+  "order_file": "/data/100x1000x1000/order_id1.h5",
+  "price_file": "/data/100x1000x1000/price1.h5",
+  "volume_file": "/data/100x1000x1000/volume1.h5",
+  "type_file": "/data/100x1000x1000/type1.h5",
+  "direction_file": "/data/100x1000x1000/direction1.h5",
+  "hook_file": "/data/100x1000x1000/hook.h5",
+  "cache_dir": "/data/team-11/Data/cache-big",
+  "chunk_size": 5000000
+}
