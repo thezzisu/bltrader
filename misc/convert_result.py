@@ -1,7 +1,7 @@
 import struct
+import sys
 
-
-FILE_prefix = "./100x10x10/trade"
+FILE_prefix = sys.argv[1] #revise here
 OUT_prefix = "./trade"
 
 for i in range(1,11):
