@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"math"
 	"reflect"
 	"sync"
 	"time"
@@ -207,14 +208,7 @@ subscribe:
 					break subscribe
 				}
 				etag = order.OrderId
-				if sh.stockId == 0 {
-					Logger.Println("stuck", name)
-					Logger.Println(order)
-				}
 				data <- order
-				if sh.stockId == 0 {
-					Logger.Println("stuck done", name)
-				}
 
 			case <-timer.C:
 				Logger.Printf("StockHandler[%d].RecvLoop(%s) timeout\n", sh.stockId, name)
@@ -278,20 +272,19 @@ func (sh *StockHandler) MergeLoop() {
 				remove(locs[chosen])
 			}
 		}
-		key := -1
-		v := int32(2000000)
+		k, v := -1, int32(math.MaxInt32)
 		for i := 0; i < n; i++ {
 			if caches[i].OrderId < v {
-				key, v = i, caches[i].OrderId
+				k, v = i, caches[i].OrderId
 			}
 		}
-		if key == -1 {
+		if k == -1 {
 			break
 		}
-		ord := caches[i]
-		caches[i] = nil
+		ord := caches[k]
+		caches[k] = nil
 		if sh.stockId == 0 {
-			Logger.Println(key, ord.OrderId)
+			Logger.Println(k, ord.OrderId)
 		}
 		trades := blr.Dispatch(ord)
 		sh.tradest.Append(trades)

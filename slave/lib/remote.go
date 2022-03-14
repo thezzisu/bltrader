@@ -135,7 +135,7 @@ func (r *Remote) RecvLoop() {
 				case common.CmdSubReq: // Subscribe request, use payload as StkId, Price as etag, OrderId as handshake
 					Logger.Println("DEBUG CmdSubReq")
 					allocated := r.Allocate(payload, dto.Price, dto.OrderId)
-					if allocated == -1 {
+					if allocated != -1 {
 						allocations[payload] = allocated
 					}
 
