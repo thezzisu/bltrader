@@ -39,10 +39,10 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.hub = hub
 	r.manager = common.CreateRPCPairManager(configPath)
 	r.name = name
-	r.incoming = make(chan *common.BLOrderDTO)
+	r.incoming = make(chan *common.BLOrderDTO, 128)
 	r.subscribes = make(chan RemoteSubscribeRequest)
 	r.command = make(chan *common.BLTradeDTO)
-	r.reshape = make(chan struct{})
+	r.reshape = make(chan struct{}, 16)
 	return r
 }
 

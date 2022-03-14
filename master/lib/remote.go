@@ -41,7 +41,7 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.name = name
 	r.incoming = make(chan *common.BLTradeDTO, 128)
 	r.subscribes = make(chan RemoteSubscribeRequest)
-	r.command = make(chan *common.BLOrderDTO, 16)
+	r.command = make(chan *common.BLOrderDTO)
 	r.reshape = make(chan struct{}, 16)
 	return r
 }
