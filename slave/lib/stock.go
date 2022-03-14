@@ -1,12 +1,9 @@
 package lib
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
-	"path"
 	"reflect"
 	"sync"
 	"time"
@@ -225,58 +222,6 @@ subscribe:
 	sh.hub.wg.Done()
 }
 
-type BLWriter struct {
-	buf  *bytes.Buffer
-	file *os.File
-}
-
-func (bw *BLWriter) init(idx string, sid int32) {
-	bw.file, _ = os.OpenFile(path.Join("./orders", fmt.Sprintf("%d", sid), "order_id"), os.O_CREATE, 0770)
-	bw.buf = bytes.NewBuffer(nil)
-}
-
-func (bw *BLWriter) write(data interface{}) {
-	if _, ok := data.(int32); ok {
-		_ = binary.Write(bw.buf, binary.LittleEndian, data.(int32))
-	} else if _, ok := data.(float64); ok {
-		_ = binary.Write(bw.buf, binary.LittleEndian, data.(float64))
-	}
-}
-
-func (bw *BLWriter) flush() {
-	bw.file.Write(bw.buf.Bytes())
-	bw.file.Close()
-}
-
-func WriteOrder(ord []common.BLOrder, sid int32) {
-	ofe := new(BLWriter)
-	ofe.init("order_id", sid)
-	for _, data := range ord {
-		ofe.write(data.OrderId)
-	}
-	ofe.flush()
-	ofe.init("direction", sid)
-	for _, data := range ord {
-		ofe.write(data.Direction)
-	}
-	ofe.flush()
-	ofe.init("type", sid)
-	for _, data := range ord {
-		ofe.write(data.Type)
-	}
-	ofe.flush()
-	ofe.init("price", sid)
-	for _, data := range ord {
-		ofe.write(data.Price)
-	}
-	ofe.flush()
-	ofe.init("volume", sid)
-	for _, data := range ord {
-		ofe.write(data.Volume)
-	}
-	ofe.flush()
-}
-
 func (sh *StockHandler) MergeLoop() {
 	blr := new(core.BLRunner)
 	lower, upper := -10000.0, 10000.0
@@ -312,8 +257,7 @@ func (sh *StockHandler) MergeLoop() {
 		return true
 	}
 
-	//ordPath := path.Join("./order", fmt.Sprintf("order-%d", sh.stockId))
-	orders := make([]common.BLOrder, 0)
+	f, _ := os.Create(fmt.Sprintf("order-%d.txt", sh.stockId))
 
 	for {
 		for !ready() {
@@ -347,14 +291,12 @@ func (sh *StockHandler) MergeLoop() {
 			Logger.Println(k, ord.OrderId)
 		}
 
-		orders = append(orders, ord)
-
+		fmt.Fprintln(f, ord.StkCode, ord.OrderId, ord.Direction, ord.Type, ord.Price, ord.Volume)
 		trades := blr.Dispatch(ord)
-
 		sh.tradest.Append(trades)
 	}
-	WriteOrder(orders, sh.stockId)
 
+	f.Close()
 	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
 }
 
