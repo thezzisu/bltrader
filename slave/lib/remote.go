@@ -171,7 +171,7 @@ func (r *Remote) RecvLoop() {
 					case <-timer.C:
 						close(ch)
 						delete(subscription, order.StkCode)
-						Logger.Println("DEBUG send CmdUnsub")
+						Logger.Printf("DEBUG send CmdUnsub reason=timeout stk=%d hs=%d\n", order.StkCode, hsids[order.StkCode])
 						r.command <- &common.BLTradeDTO{
 							Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
 							AskId: hsids[order.StkCode],
@@ -179,7 +179,7 @@ func (r *Remote) RecvLoop() {
 					}
 				} else {
 					if ts, ok := lastUnsub[order.StkCode]; !ok || time.Since(ts) > unsubTimeout {
-						Logger.Println("DEBUG send CmdUnsub")
+						Logger.Printf("DEBUG send CmdUnsub reason=notfound stk=%d hs=%d\n", order.StkCode, hsids[order.StkCode])
 						r.command <- &common.BLTradeDTO{
 							Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
 							AskId: hsids[order.StkCode],
