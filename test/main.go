@@ -163,11 +163,9 @@ func main() {
 		_ = os.Remove("./sell_cache")
 	}
 	result := make([]common.BLTrade, 0)
-	lower_price := -100000.0
-	upper_price := 100000.0
 	func() {
 		blr := new(core.BLRunner)
-		blr.Load(lower_price, upper_price)
+		blr.Load()
 		if *isdump {
 			for i := 0; i < aosize; i++ {
 				if i == *position {

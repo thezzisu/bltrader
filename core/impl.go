@@ -11,14 +11,14 @@ import (
 	"github.com/thezzisu/bltrader/common"
 )
 
+const SoSize = 16
+
+//const SoSize = 12
+
 type ShortOrder struct {
 	OrderId int32
 	Price   float64
 	Volume  int32
-}
-
-func (so *ShortOrder) String() string {
-	return fmt.Sprintf("Short Order %d %f %d\n", so.OrderId, so.Price, so.Volume)
 }
 
 type BLRunner struct {
@@ -26,15 +26,10 @@ type BLRunner struct {
 	sellTree   *treemap.Map
 	buyVolume  int32
 	sellVolume int32
-	lowerPrice float64
-	upperPrice float64
 	queuePool  *sync.Pool
 }
 
 func (blrunner *BLRunner) Dispatch(order *common.BLOrder) []common.BLTrade {
-	if order.Price > blrunner.upperPrice || order.Price < blrunner.lowerPrice {
-		return []common.BLTrade{}
-	}
 	switch order.Type {
 	case 0:
 		return blrunner.dealLimit(order)
@@ -67,17 +62,17 @@ func (blrunner *BLRunner) OtherTree(order *common.BLOrder) *treemap.Map {
 	}
 }
 
-func (blrunner *BLRunner) GenTrade(order *common.BLOrder, ordee *ShortOrder, price float64, isMeBuy bool) common.BLTrade {
+func (blrunner *BLRunner) GenTrade(order *common.BLOrder, oid int32, ovo int32, price float64, isMeBuy bool) common.BLTrade {
 	vol := order.Volume
-	if vol > ordee.Volume {
-		vol = ordee.Volume
+	if vol > ovo {
+		vol = ovo
 	}
 	if isMeBuy {
 		blrunner.sellVolume -= vol
-		return common.BLTrade{StkCode: order.StkCode, BidId: order.OrderId, AskId: ordee.OrderId, Price: price, Volume: vol}
+		return common.BLTrade{StkCode: order.StkCode, BidId: order.OrderId, AskId: oid, Price: price, Volume: vol}
 	} else {
 		blrunner.buyVolume -= vol
-		return common.BLTrade{StkCode: order.StkCode, BidId: ordee.OrderId, AskId: order.OrderId, Price: price, Volume: vol}
+		return common.BLTrade{StkCode: order.StkCode, BidId: oid, AskId: order.OrderId, Price: price, Volume: vol}
 	}
 }
 
@@ -105,16 +100,16 @@ func (blrunner *BLRunner) dealLimit(order *common.BLOrder) []common.BLTrade {
 		u := q.head
 		endFlag := false
 		for ; u != nil && !endFlag; u = q.head {
-			if u.order.Volume <= order.Volume {
-				trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-				order.Volume -= u.order.Volume
+			if u.Volume <= order.Volume {
+				trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, oprice, isMeBuy))
+				order.Volume -= u.Volume
 				q.Free(blrunner.queuePool)
 				if order.Volume == 0 {
 					break
 				}
 			} else {
-				trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-				u.order.Volume -= order.Volume
+				trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, oprice, isMeBuy))
+				u.Volume -= order.Volume
 				order.Volume = 0
 				endFlag = true
 			}
@@ -152,16 +147,16 @@ func (blrunner *BLRunner) oppoBest(order *common.BLOrder) []common.BLTrade {
 	u := q.head
 	endFlag := false
 	for ; u != nil && !endFlag; u = q.head {
-		if u.order.Volume <= order.Volume {
-			trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-			order.Volume -= u.order.Volume
+		if u.Volume <= order.Volume {
+			trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, shorter.Price, isMeBuy))
+			order.Volume -= u.Volume
 			q.Free(blrunner.queuePool)
 			if order.Volume == 0 {
 				break
 			}
 		} else {
-			trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-			u.order.Volume -= order.Volume
+			trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, shorter.Price, isMeBuy))
+			u.Volume -= order.Volume
 			order.Volume = 0
 			endFlag = true
 		}
@@ -200,7 +195,7 @@ func (blrunner *BLRunner) selfBest(order *common.BLOrder) []common.BLTrade {
 	} else {
 		blrunner.sellVolume += shorter.Volume
 	}
-	q.Push(blrunner.queuePool, &shorter)
+	q.Push(blrunner.queuePool, shorter.OrderId, shorter.Volume)
 	return trades
 }
 
@@ -217,16 +212,16 @@ func (blrunner *BLRunner) insOnce(order *common.BLOrder) []common.BLTrade {
 		u := q.head
 		endFlag := false
 		for ; u != nil && (!endFlag); u = q.head {
-			if u.order.Volume <= order.Volume {
-				trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-				order.Volume -= u.order.Volume
+			if u.Volume <= order.Volume {
+				trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, oprice, isMeBuy))
+				order.Volume -= u.Volume
 				q.Free(blrunner.queuePool)
 				if order.Volume == 0 {
 					break
 				}
 			} else {
-				trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-				u.order.Volume -= order.Volume
+				trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, oprice, isMeBuy))
+				u.Volume -= order.Volume
 				order.Volume = 0
 				endFlag = true
 			}
@@ -252,16 +247,16 @@ func (blrunner *BLRunner) ins5Once(order *common.BLOrder) []common.BLTrade {
 		u := q.head
 		endFlag := false
 		for ; u != nil && !endFlag; u = q.head {
-			if u.order.Volume <= order.Volume {
-				trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-				order.Volume -= u.order.Volume
+			if u.Volume <= order.Volume {
+				trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, oprice, isMeBuy))
+				order.Volume -= u.Volume
 				q.Free(blrunner.queuePool)
 				if order.Volume == 0 {
 					break
 				}
 			} else {
-				trades = append(trades, blrunner.GenTrade(order, &u.order, u.order.Price, isMeBuy))
-				u.order.Volume -= order.Volume
+				trades = append(trades, blrunner.GenTrade(order, u.OrderId, u.Volume, oprice, isMeBuy))
+				u.Volume -= order.Volume
 				order.Volume = 0
 				endFlag = true
 			}
@@ -321,10 +316,10 @@ func (blrunner *BLRunner) InsertOrder(rbt *treemap.Map, order *ShortOrder) {
 	if q_, ok := rbt.Get(order.Price); !ok {
 		q := new(Queue)
 		rbt.Put(order.Price, q)
-		q.Push(blrunner.queuePool, order)
+		q.Push(blrunner.queuePool, order.OrderId, order.Volume)
 	} else {
 		q := q_.(*Queue)
-		q.Push(blrunner.queuePool, order)
+		q.Push(blrunner.queuePool, order.OrderId, order.Volume)
 	}
 }
 
@@ -350,7 +345,7 @@ func (fc *FChunk) Read() *bytes.Buffer {
 		}
 		fc.buf = bytes.NewBuffer(rb)
 	}
-	fc.n -= 16
+	fc.n -= SoSize
 	return fc.buf
 }
 
@@ -360,7 +355,7 @@ func (fc *FChunk) Write() *bytes.Buffer {
 		fc.buf = bytes.NewBuffer(nil)
 		fc.n = 0
 	}
-	fc.n += 16
+	fc.n += SoSize
 	return fc.buf
 }
 
@@ -403,11 +398,9 @@ order.OrderId = order.Price = 0
 
 */
 
-func (blrunner *BLRunner) Load(lower float64, upper float64) {
+func (blrunner *BLRunner) Load() {
 	blrunner.buyTree = treemap.NewWith(byPriceDescend)
 	blrunner.sellTree = treemap.NewWith(byPriceAscend)
-	blrunner.lowerPrice = lower
-	blrunner.upperPrice = upper
 	blrunner.queuePool = &sync.Pool{New: func() interface{} { return new(LinkNode) }}
 
 	//blrunner.buyVolume, blrunner.sellVolume = 0, 0
@@ -464,9 +457,12 @@ func (blrunner *BLRunner) Dump() {
 		order.Write(chunk)
 		it := tree.Iterator()
 		for it.Next() {
-			u := it.Value().(*Queue).head
+			tprice, u := it.Key().(float64), it.Value().(*Queue).head
 			for ; u != nil; u = u.next {
-				u.order.Write(chunk)
+				order.OrderId = u.OrderId
+				order.Volume = u.Volume
+				order.Price = tprice
+				order.Write(chunk)
 			}
 		}
 		chunk.WFlush()

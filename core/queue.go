@@ -5,8 +5,9 @@ import (
 )
 
 type LinkNode struct {
-	next  *LinkNode
-	order ShortOrder
+	next    *LinkNode
+	OrderId int32
+	Volume  int32
 }
 
 type Queue struct {
@@ -14,11 +15,10 @@ type Queue struct {
 	tail *LinkNode
 }
 
-func (queue *Queue) Push(p *sync.Pool, order *ShortOrder) {
+func (queue *Queue) Push(p *sync.Pool, oid int32, vol int32) {
 	v := p.Get().(*LinkNode)
-	v.order.OrderId = order.OrderId
-	v.order.Price = order.Price
-	v.order.Volume = order.Volume
+	v.OrderId = oid
+	v.Volume = vol
 	v.next = nil
 	if queue.head == nil {
 		queue.head, queue.tail = v, v
