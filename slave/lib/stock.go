@@ -1,38 +1,13 @@
 package lib
 
 import (
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/thezzisu/bltrader/common"
 	"github.com/thezzisu/bltrader/core"
 )
-
-type Peeker struct {
-	ch   chan *common.BLOrder
-	last *common.BLOrder
-}
-
-func CreatePeeker() *Peeker {
-	ch := make(chan *common.BLOrder)
-	return &Peeker{ch: ch}
-}
-
-func (p *Peeker) Peek() *common.BLOrder {
-	if p.last == nil {
-		p.last = <-p.ch
-	}
-	return p.last
-}
-
-func (p *Peeker) Get() *common.BLOrder {
-	if p.last == nil {
-		return <-p.ch
-	}
-	last := p.last
-	p.last = nil
-	return last
-}
 
 var ChunkSize int
 
@@ -128,7 +103,7 @@ type StockHandler struct {
 	hub        *Hub
 	stockId    int32
 	subscribes map[string]chan *StockSubscribeRequest
-	peekers    map[string]*Peeker
+	datas      map[string]chan *common.BLOrder
 	readers    map[string]*TradeReader
 	tradest    *TradeStore
 }
@@ -138,7 +113,7 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	sh.hub = hub
 	sh.stockId = stockId
 	sh.subscribes = make(map[string]chan *StockSubscribeRequest)
-	sh.peekers = make(map[string]*Peeker)
+	sh.datas = make(map[string]chan *common.BLOrder)
 	sh.readers = make(map[string]*TradeReader)
 	return sh
 }
@@ -209,7 +184,7 @@ func (sh *StockHandler) SendLoop(name string) {
 
 func (sh *StockHandler) RecvLoop(name string) {
 	remote := sh.hub.remotes[name]
-	peeker := sh.peekers[name]
+	data := sh.datas[name]
 	etag := int32(0)
 	timeout := time.Millisecond * time.Duration(Config.StockHandlerTimeoutMs)
 subscribe:
@@ -232,7 +207,14 @@ subscribe:
 					break subscribe
 				}
 				etag = order.OrderId
-				peeker.ch <- order
+				if sh.stockId == 0 {
+					Logger.Println("stuck", name)
+					Logger.Println(order)
+				}
+				data <- order
+				if sh.stockId == 0 {
+					Logger.Println("stuck done", name)
+				}
 
 			case <-timer.C:
 				Logger.Printf("StockHandler[%d].RecvLoop(%s) timeout\n", sh.stockId, name)
@@ -249,22 +231,68 @@ func (sh *StockHandler) MergeLoop() {
 	lower, upper := -10000.0, 10000.0
 	//TODO: idk where to find bounds
 	blr.Load(lower, upper)
-	for {
-		key := ""
-		v := int32(2000000)
-		for k, pk := range sh.peekers {
-			u := pk.Peek()
-			if u == nil {
-				continue
-			}
-			if u.OrderId < v {
-				key, v = k, u.OrderId
+
+	n := len(sh.datas)
+	caches := make([]*common.BLOrder, n)
+	sources := make([]chan *common.BLOrder, n)
+	cases := make([]reflect.SelectCase, n)
+	locs := make([]int, n)
+	i := 0
+	for _, data := range sh.datas {
+		caches[i] = nil
+		sources[i] = data
+		i++
+	}
+
+	remove := func(pos int) {
+		sources[pos] = sources[n-1]
+		sources = sources[:n-1]
+		caches[pos] = caches[n-1]
+		caches = caches[:n-1]
+		n--
+	}
+
+	ready := func() bool {
+		for _, v := range caches {
+			if v == nil {
+				return false
 			}
 		}
-		if key == "" {
+		return true
+	}
+
+	for {
+		for !ready() {
+			i = 0
+			for j := 0; j < n; j++ {
+				if caches[j] == nil {
+					cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(sources[j])}
+					locs[i] = j
+					i++
+				}
+			}
+			chosen, recv, ok := reflect.Select(cases[:i])
+			if ok {
+				caches[locs[chosen]] = recv.Interface().(*common.BLOrder)
+			} else {
+				remove(locs[chosen])
+			}
+		}
+		key := -1
+		v := int32(2000000)
+		for i := 0; i < n; i++ {
+			if caches[i].OrderId < v {
+				key, v = i, caches[i].OrderId
+			}
+		}
+		if key == -1 {
 			break
 		}
-		ord := sh.peekers[key].Get()
+		ord := caches[i]
+		caches[i] = nil
+		if sh.stockId == 0 {
+			Logger.Println(key, ord.OrderId)
+		}
 		trades := blr.Dispatch(ord)
 		sh.tradest.Append(trades)
 	}
@@ -276,7 +304,7 @@ func (sh *StockHandler) Start() {
 	sh.tradest = CreateTradeStore()
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)
-		sh.peekers[master.Name] = CreatePeeker()
+		sh.datas[master.Name] = make(chan *common.BLOrder, 1000000)
 		sh.readers[master.Name] = CreateTradeReader(sh.tradest)
 
 		sh.hub.wg.Add(1)

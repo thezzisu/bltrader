@@ -121,7 +121,11 @@ func (r *Remote) RecvLoop() {
 
 	allocations := make(map[int32]int)
 
-	timeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
+	lastUnsub := make(map[int32]time.Time)
+
+	subscribeTimeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
+	unsubTimeout := time.Millisecond * 100
+	processTimeout := time.Millisecond * 100
 	for {
 		select {
 		case dto := <-r.incoming:
@@ -160,8 +164,7 @@ func (r *Remote) RecvLoop() {
 				var order common.BLOrder
 				common.UnmarshalOrderDTO(dto, &order)
 				if ch, ok := subscription[order.StkCode]; ok {
-					// 100ms data processing delay
-					timer := time.NewTimer(time.Millisecond * 100)
+					timer := time.NewTimer(processTimeout)
 					select {
 					case ch <- &order:
 						if !timer.Stop() {
@@ -178,10 +181,13 @@ func (r *Remote) RecvLoop() {
 						}
 					}
 				} else {
-					Logger.Println("DEBUG send CmdUnsub")
-					r.command <- &common.BLTradeDTO{
-						Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
-						AskId: hsids[order.StkCode],
+					if ts, ok := lastUnsub[order.StkCode]; !ok || time.Since(ts) > unsubTimeout {
+						Logger.Println("DEBUG send CmdUnsub")
+						r.command <- &common.BLTradeDTO{
+							Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
+							AskId: hsids[order.StkCode],
+						}
+						lastUnsub[order.StkCode] = time.Now()
 					}
 				}
 			}
@@ -203,7 +209,7 @@ func (r *Remote) RecvLoop() {
 				Price: req.etag,
 			}
 			go func(handshake int32) {
-				time.Sleep(timeout)
+				time.Sleep(subscribeTimeout)
 				pendingTimeout <- handshake
 			}(handshake)
 		}
