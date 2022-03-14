@@ -31,6 +31,10 @@ func CreateTradeStore(size int) *TradeStore {
 	return ts
 }
 
+func (ts *TradeStore) Close() {
+	close(ts.source)
+}
+
 func (ts *TradeStore) Ensure(id int32) {
 	ts.mutex.Lock()
 	defer ts.mutex.Unlock()
@@ -294,6 +298,7 @@ func (sh *StockHandler) MergeLoop() {
 		}
 	}
 
+	sh.store.Close()
 	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
 	sh.hub.wg.Done()
 }
