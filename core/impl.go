@@ -414,8 +414,8 @@ func (blrunner *BLRunner) Load() {
 		blrunner.buyVolume, blrunner.sellVolume = 0, 0
 		return
 	}
-	bFile, _ := os.OpenFile("./buy_cache", os.O_RDONLY, 0777)
-	sFile, _ := os.OpenFile("./sell_cache", os.O_RDONLY, 0777)
+	bFile, _ := os.OpenFile("./buy_cache", os.O_RDONLY, 0600)
+	sFile, _ := os.OpenFile("./sell_cache", os.O_RDONLY, 0600)
 
 	ReadCache := func(rFile *os.File, sVolume *int32, tree *treemap.Map) {
 		var order ShortOrder
@@ -443,8 +443,8 @@ func (blrunner *BLRunner) Load() {
 }
 
 func (blrunner *BLRunner) Dump() {
-	bFile, errB := os.OpenFile("./buy_cache", os.O_CREATE|os.O_WRONLY, 0777)
-	sFile, errS := os.OpenFile("./sell_cache", os.O_CREATE|os.O_WRONLY, 0777)
+	bFile, errB := os.OpenFile("./buy_cache", os.O_CREATE|os.O_WRONLY, 0600)
+	sFile, errS := os.OpenFile("./sell_cache", os.O_CREATE|os.O_WRONLY, 0600)
 	if errB != nil || errS != nil {
 		panic("Failed to write cache")
 	}
