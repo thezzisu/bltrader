@@ -226,9 +226,7 @@ subscribe:
 
 func (sh *StockHandler) MergeLoop() {
 	blr := new(core.BLRunner)
-	lower, upper := -10000.0, 10000.0
-	//TODO: idk where to find bounds
-	blr.Load(lower, upper)
+	blr.Load()
 
 	n := len(sh.datas)
 	caches := make([]*common.BLOrder, n)
