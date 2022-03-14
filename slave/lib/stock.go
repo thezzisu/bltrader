@@ -225,21 +225,6 @@ subscribe:
 	sh.hub.wg.Done()
 }
 
-func saveOrder(ord *common.BLOrder, dst *os.File) {
-	buf := bytes.NewBuffer(nil)
-	idsCh := LoadDatasetInt32Async(stock, chunk, "order_id")
-	directionsCh := LoadDatasetInt32Async(stock, chunk, "direction")
-	typesCh := LoadDatasetInt32Async(stock, chunk, "type")
-	pricesCh := LoadDatasetFloat64Async(stock, chunk, "price")
-	volumesCh := LoadDatasetInt32Async(stock, chunk, "volume")
-	_ = binary.Write(buf, binary.LittleEndian, ord.StkCode)
-	_ = binary.Write(buf, binary.LittleEndian, ord.BidId)
-	_ = binary.Write(buf, binary.LittleEndian, ord.AskId)
-	_ = binary.Write(buf, binary.LittleEndian, ord.Price)
-	_ = binary.Write(buf, binary.LittleEndian, ord.Volume)
-	_, _ = dst.Write(buf.Bytes())
-}
-
 type BLWriter struct {
 	buf  *bytes.Buffer
 	file *os.File
