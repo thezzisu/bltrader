@@ -61,7 +61,7 @@ func (si *StockInfo) Slide() {
 }
 
 func (si *StockInfo) Seek(etag int32) {
-	if si.cacheL[len(si.cacheL)-1].OrderId > etag {
+	if len(si.cacheL) > 0 && si.cacheL[len(si.cacheL)-1].OrderId > etag {
 		si.incR = false
 	}
 	for si.cacheR[len(si.cacheR)-1].OrderId <= etag {
