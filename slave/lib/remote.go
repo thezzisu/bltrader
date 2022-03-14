@@ -113,18 +113,15 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) int {
 
 func (r *Remote) RecvLoop() {
 	pending := make(map[int32]RemoteSubscribeRequest)
-	pendingTimeout := make(chan int32)
-
+	expired := make(chan int32)
 	subscription := make(map[int32]chan *common.BLOrder)
 	hsids := make(map[int32]int32)
 	handshake := int32(0)
-
 	allocations := make(map[int32]int)
-
 	lastUnsub := make(map[int32]time.Time)
 
 	subscribeTimeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
-	unsubTimeout := time.Millisecond * 100
+	unsubTimeout := time.Millisecond * 500
 	processTimeout := time.Millisecond * 100
 	for {
 		select {
@@ -192,7 +189,7 @@ func (r *Remote) RecvLoop() {
 				}
 			}
 
-		case hs := <-pendingTimeout:
+		case hs := <-expired:
 			if req, ok := pending[hs]; ok {
 				req.result <- nil
 				delete(pending, hs)
@@ -210,7 +207,7 @@ func (r *Remote) RecvLoop() {
 			}
 			go func(handshake int32) {
 				time.Sleep(subscribeTimeout)
-				pendingTimeout <- handshake
+				expired <- handshake
 			}(handshake)
 		}
 	}

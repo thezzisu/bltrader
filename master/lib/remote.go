@@ -113,15 +113,16 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) int {
 
 func (r *Remote) RecvLoop() {
 	pending := make(map[int32]RemoteSubscribeRequest)
-	pendingTimeout := make(chan int32)
-
+	expired := make(chan int32)
 	subscription := make(map[int32]chan *common.BLTrade)
 	hsids := make(map[int32]int32)
 	handshake := int32(0)
-
 	allocations := make(map[int32]int)
+	lastUnsub := make(map[int32]time.Time)
 
-	timeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
+	subscribeTimeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
+	unsubTimeout := time.Millisecond * 500
+	processTimeout := time.Millisecond * 100
 	for {
 		select {
 		case dto := <-r.incoming:
@@ -160,8 +161,7 @@ func (r *Remote) RecvLoop() {
 				var trade common.BLTrade
 				common.UnmarshalTradeDTO(dto, &trade)
 				if ch, ok := subscription[trade.StkCode]; ok {
-					// 100ms data processing delay
-					timer := time.NewTimer(time.Millisecond * 100)
+					timer := time.NewTimer(processTimeout)
 					select {
 					case ch <- &trade:
 						if !timer.Stop() {
@@ -178,15 +178,18 @@ func (r *Remote) RecvLoop() {
 						}
 					}
 				} else {
-					Logger.Println("DEBUG send CmdUnsub")
-					r.command <- &common.BLOrderDTO{
-						Mix:     common.EncodeCmd(common.CmdUnsub, trade.StkCode),
-						OrderId: hsids[trade.StkCode],
+					if ts, ok := lastUnsub[trade.StkCode]; !ok || time.Since(ts) > unsubTimeout {
+						Logger.Println("DEBUG send CmdUnsub")
+						r.command <- &common.BLOrderDTO{
+							Mix:     common.EncodeCmd(common.CmdUnsub, trade.StkCode),
+							OrderId: hsids[trade.StkCode],
+						}
+						lastUnsub[trade.StkCode] = time.Now()
 					}
 				}
 			}
 
-		case hs := <-pendingTimeout:
+		case hs := <-expired:
 			if req, ok := pending[hs]; ok {
 				req.result <- nil
 				delete(pending, hs)
@@ -203,8 +206,8 @@ func (r *Remote) RecvLoop() {
 				Price:   req.etag,
 			}
 			go func(handshake int32) {
-				time.Sleep(timeout)
-				pendingTimeout <- handshake
+				time.Sleep(subscribeTimeout)
+				expired <- handshake
 			}(handshake)
 		}
 	}
