@@ -217,6 +217,7 @@ subscribe:
 		}
 	}
 	Logger.Printf("Stock %d\tRecvLoop (%s) done\n", sh.stockId, name)
+	close(data)
 	sh.hub.wg.Done()
 }
 
@@ -292,6 +293,7 @@ func (sh *StockHandler) MergeLoop() {
 	}
 
 	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
+	sh.hub.wg.Done()
 }
 
 func (sh *StockHandler) Start() {
@@ -306,5 +308,6 @@ func (sh *StockHandler) Start() {
 		go sh.SendLoop(master.Name)
 		go sh.RecvLoop(master.Name)
 	}
+	sh.hub.wg.Add(1)
 	go sh.MergeLoop()
 }
