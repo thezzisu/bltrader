@@ -1,0 +1,22 @@
+{
+  "Name": "M1",
+  "CacheDir": "/data/team-11/Data/cache-small",
+  "DataDir": "/data/team-11/Data/master-small",
+  "Listen": "127.0.0.1:19260",
+  "Magic": 19260817,
+  "Compress": false,
+  "Procs": 16,
+  "Slaves": [
+    {
+      "Name": "S1",
+      "Stocks": [0, 1, 2, 3, 4]
+    },
+    {
+      "Name": "S2",
+      "Stocks": [5, 6, 7, 8, 9]
+    }
+  ],
+  "StockRecvTimeoutMs": 1000,
+  "ShaperIntervalMs": 30000,
+  "SubscribeTimeoutMs": 2000
+}
