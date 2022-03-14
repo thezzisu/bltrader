@@ -285,9 +285,6 @@ func (sh *StockHandler) MergeLoop() {
 		}
 		ord := caches[k]
 		caches[k] = nil
-		if sh.stockId == 0 {
-			Logger.Println(k, ord.OrderId)
-		}
 
 		trades := blr.Dispatch(ord)
 		for _, trade := range trades {
