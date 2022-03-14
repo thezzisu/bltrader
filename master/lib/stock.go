@@ -173,7 +173,7 @@ type StockHandler struct {
 }
 
 func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
-	dataDir := path.Join(Config.DataDir, fmt.Sprint(stockId))
+	dataDir := Config.DataDir
 	err := os.MkdirAll(dataDir, 0700)
 	if err != nil {
 		Logger.Fatalln(err)
