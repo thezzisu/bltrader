@@ -68,14 +68,14 @@ func (r *Remote) Reload() {
 			r.transports[i].Close()
 			r.transports[i] = CreateTransport(r, pairs[i])
 			r.transports[i].Start()
-			Logger.Printf("RPC\tReload %s: new endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
+			Logger.Printf("Remote\tReload %s: new endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 		}
 	}
 	for i := len(r.transports); i < len(pairs); i++ {
 		endpoint := CreateTransport(r, pairs[i])
 		r.transports = append(r.transports, endpoint)
 		endpoint.Start()
-		Logger.Printf("RPC\tReload %s: new endpoint %s <-> %s", r.name, endpoint.pair.MasterAddr, endpoint.pair.SlaveAddr)
+		Logger.Printf("Remote\tReload %s: new endpoint %s <-> %s", r.name, endpoint.pair.MasterAddr, endpoint.pair.SlaveAddr)
 	}
 }
 

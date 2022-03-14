@@ -42,7 +42,7 @@ func InitConfig() {
 		Logger.Fatal(err)
 	}
 	configPath = path.Join(configPath, "bltrader", fmt.Sprintf("%s.json", Profile))
-	Logger.Println("Load config from", configPath)
+	Logger.Println("load config from", configPath)
 	configContent, err := os.ReadFile(configPath)
 	if err != nil {
 		Logger.Fatal(err)

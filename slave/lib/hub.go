@@ -25,6 +25,14 @@ func CreateHub() *Hub {
 }
 
 func (h *Hub) Start() {
+	Logger.Println("\033[33m  ___ _  _____            _")
+	Logger.Println(" | _ ) ||_   _| _ __ _ __| |___ _ _")
+	Logger.Println(" | _ \\ |__| || '_/ _` / _` / -_) '_|")
+	Logger.Println(" |___/____|_||_| \\__,_\\__,_\\___|_|")
+	Logger.Println("  ___ _")
+	Logger.Println(" / __| |__ ___ _____")
+	Logger.Println(" \\__ \\ / _` \\ V / -_)")
+	Logger.Println(" |___/_\\__,_|\\_/\\___|\033[0m")
 	for _, stock := range h.stocks {
 		stock.Start()
 	}

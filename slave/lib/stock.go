@@ -141,7 +141,7 @@ func (sh *StockHandler) SendLoop(name string) {
 	reader := sh.readers[name]
 
 	replace := func(req *StockSubscribeRequest) {
-		Logger.Printf("StockHandler[%d].SendLoop(%s): master subscribed since %d\n", sh.stockId, name, req.etag)
+		Logger.Printf("Stock %d\tmaster %s subscribed since %d\n", sh.stockId, name, req.etag)
 		close(ch)
 		ch = req.ch
 		reader.Seek(req.etag)
@@ -211,12 +211,12 @@ subscribe:
 				data <- order
 
 			case <-timer.C:
-				Logger.Printf("StockHandler[%d].RecvLoop(%s) timeout\n", sh.stockId, name)
+				Logger.Printf("Stock %d\tRecvLoop (%s) timeout\n", sh.stockId, name)
 				continue subscribe
 			}
 		}
 	}
-	Logger.Printf("StockHandler[%d].RecvLoop done\n", sh.stockId)
+	Logger.Printf("Stock %d\tRecvLoop (%s) done\n", sh.stockId, name)
 	sh.hub.wg.Done()
 }
 
@@ -289,7 +289,7 @@ func (sh *StockHandler) MergeLoop() {
 		trades := blr.Dispatch(ord)
 		sh.tradest.Append(trades)
 	}
-	Logger.Printf("StockHandler[%d].MergeLoop done\n", sh.stockId)
+	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
 }
 
 func (sh *StockHandler) Start() {
