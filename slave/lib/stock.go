@@ -1,7 +1,12 @@
 package lib
 
 import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
+	"path"
 	"reflect"
 	"sync"
 	"time"
@@ -220,15 +225,72 @@ subscribe:
 	sh.hub.wg.Done()
 }
 
-// func saveTrade(tr *common.BLTrade, dst *os.File) {
-// 	buf := bytes.NewBuffer(nil)
-// 	_ = binary.Write(buf, binary.LittleEndian, tr.StkCode)
-// 	_ = binary.Write(buf, binary.LittleEndian, tr.BidId)
-// 	_ = binary.Write(buf, binary.LittleEndian, tr.AskId)
-// 	_ = binary.Write(buf, binary.LittleEndian, tr.Price)
-// 	_ = binary.Write(buf, binary.LittleEndian, tr.Volume)
-// 	_, _ = dst.Write(buf.Bytes())
-// }
+func saveOrder(ord *common.BLOrder, dst *os.File) {
+	buf := bytes.NewBuffer(nil)
+	idsCh := LoadDatasetInt32Async(stock, chunk, "order_id")
+	directionsCh := LoadDatasetInt32Async(stock, chunk, "direction")
+	typesCh := LoadDatasetInt32Async(stock, chunk, "type")
+	pricesCh := LoadDatasetFloat64Async(stock, chunk, "price")
+	volumesCh := LoadDatasetInt32Async(stock, chunk, "volume")
+	_ = binary.Write(buf, binary.LittleEndian, ord.StkCode)
+	_ = binary.Write(buf, binary.LittleEndian, ord.BidId)
+	_ = binary.Write(buf, binary.LittleEndian, ord.AskId)
+	_ = binary.Write(buf, binary.LittleEndian, ord.Price)
+	_ = binary.Write(buf, binary.LittleEndian, ord.Volume)
+	_, _ = dst.Write(buf.Bytes())
+}
+
+type BLWriter struct {
+	buf  *bytes.Buffer
+	file *os.File
+}
+
+func (bw *BLWriter) init(idx string, sid int32) {
+	bw.file, _ = os.OpenFile(path.Join("./orders", fmt.Sprintf("%d", sid), "order_id"), os.O_CREATE, 0770)
+	bw.buf = bytes.NewBuffer(nil)
+}
+
+func (bw *BLWriter) write(data interface{}) {
+	if _, ok := data.(int32); ok {
+		_ = binary.Write(bw.buf, binary.LittleEndian, data.(int32))
+	} else if _, ok := data.(float64); ok {
+		_ = binary.Write(bw.buf, binary.LittleEndian, data.(float64))
+	}
+}
+
+func (bw *BLWriter) flush() {
+	bw.file.Write(bw.buf.Bytes())
+	bw.file.Close()
+}
+
+func WriteOrder(ord []common.BLOrder, sid int32) {
+	ofe := new(BLWriter)
+	ofe.init("order_id", sid)
+	for _, data := range ord {
+		ofe.write(data.OrderId)
+	}
+	ofe.flush()
+	ofe.init("direction", sid)
+	for _, data := range ord {
+		ofe.write(data.Direction)
+	}
+	ofe.flush()
+	ofe.init("type", sid)
+	for _, data := range ord {
+		ofe.write(data.Type)
+	}
+	ofe.flush()
+	ofe.init("price", sid)
+	for _, data := range ord {
+		ofe.write(data.Price)
+	}
+	ofe.flush()
+	ofe.init("volume", sid)
+	for _, data := range ord {
+		ofe.write(data.Volume)
+	}
+	ofe.flush()
+}
 
 func (sh *StockHandler) MergeLoop() {
 	blr := new(core.BLRunner)
@@ -265,8 +327,8 @@ func (sh *StockHandler) MergeLoop() {
 		return true
 	}
 
-	// tradePath := path.Join("./trades", fmt.Sprintf("trade-%d", sh.stockId))
-	// tradeFile := os.OpenFile(tradePath)
+	//ordPath := path.Join("./order", fmt.Sprintf("order-%d", sh.stockId))
+	orders := make([]common.BLOrder, 0)
 
 	for {
 		for !ready() {
@@ -299,16 +361,14 @@ func (sh *StockHandler) MergeLoop() {
 		if sh.stockId == 0 {
 			Logger.Println(k, ord.OrderId)
 		}
-		trades := blr.Dispatch(ord)
 
-		// for _, tr := range trades {
-		// 	saveTrade(tr, tradeFile)
-		// }
+		orders = append(orders, ord)
+
+		trades := blr.Dispatch(ord)
 
 		sh.tradest.Append(trades)
 	}
-
-	// tradeFile.Close()
+	WriteOrder(orders, sh.stockId)
 
 	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
 }
