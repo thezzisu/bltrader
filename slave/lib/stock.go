@@ -1,9 +1,7 @@
 package lib
 
 import (
-	"fmt"
 	"math"
-	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -257,8 +255,6 @@ func (sh *StockHandler) MergeLoop() {
 		return true
 	}
 
-	f, _ := os.Create(fmt.Sprintf("order-%d.txt", sh.stockId))
-
 	for {
 		for !ready() {
 			i = 0
@@ -291,12 +287,10 @@ func (sh *StockHandler) MergeLoop() {
 			Logger.Println(k, ord.OrderId)
 		}
 
-		fmt.Fprintln(f, ord.StkCode, ord.OrderId, ord.Direction, ord.Type, ord.Price, ord.Volume)
 		trades := blr.Dispatch(ord)
 		sh.tradest.Append(trades)
 	}
 
-	f.Close()
 	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
 }
 
