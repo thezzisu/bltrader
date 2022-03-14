@@ -130,14 +130,14 @@ func (r *Remote) RecvLoop() {
 				cmd, payload := common.DecodeCmd(dto.Mix)
 				switch cmd {
 				case common.CmdSubReq: // Subscribe request, use payload as StkId, Price as etag, OrderId as handshake
-					Logger.Printf("DEBUG handle CmdSubReq stk=%d hs=%d\n", payload, dto.OrderId)
+					// Logger.Printf("DEBUG handle CmdSubReq stk=%d hs=%d\n", payload, dto.OrderId)
 					allocated := r.Allocate(payload, dto.Price, dto.OrderId)
 					if allocated != -1 {
 						allocations[payload] = allocated
 					}
 
 				case common.CmdSubRes: // Subscribe response, use OrderId as handshake
-					Logger.Printf("DEBUG handle CmdSubRes hs=%d\n", dto.OrderId)
+					// Logger.Printf("DEBUG handle CmdSubRes hs=%d\n", dto.OrderId)
 					if req, ok := pending[dto.OrderId]; ok {
 						ch := make(chan *common.BLOrder)
 						subscription[req.stock] = ch
@@ -147,7 +147,7 @@ func (r *Remote) RecvLoop() {
 					}
 
 				case common.CmdUnsub:
-					Logger.Printf("DEBUG handle CmdSubRes stk=%d hs=%d\n", payload, dto.OrderId)
+					// Logger.Printf("DEBUG handle CmdSubRes stk=%d hs=%d\n", payload, dto.OrderId)
 					if k, ok := allocations[payload]; ok {
 						r.transportMutex.RLock()
 						if len(r.transports) > k { // Make sure we have that transport
@@ -171,7 +171,7 @@ func (r *Remote) RecvLoop() {
 					case <-timer.C:
 						close(ch)
 						delete(subscription, order.StkCode)
-						Logger.Printf("DEBUG send CmdUnsub reason=timeout stk=%d hs=%d\n", order.StkCode, hsids[order.StkCode])
+						// Logger.Printf("DEBUG send CmdUnsub reason=timeout stk=%d hs=%d\n", order.StkCode, hsids[order.StkCode])
 						r.command <- &common.BLTradeDTO{
 							Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
 							AskId: hsids[order.StkCode],
@@ -179,7 +179,7 @@ func (r *Remote) RecvLoop() {
 					}
 				} else {
 					if ts, ok := lastUnsub[order.StkCode]; !ok || time.Since(ts) > unsubTimeout {
-						Logger.Printf("DEBUG send CmdUnsub reason=notfound stk=%d hs=%d\n", order.StkCode, hsids[order.StkCode])
+						// Logger.Printf("DEBUG send CmdUnsub reason=notfound stk=%d hs=%d\n", order.StkCode, hsids[order.StkCode])
 						r.command <- &common.BLTradeDTO{
 							Mix:   common.EncodeCmd(common.CmdUnsub, order.StkCode),
 							AskId: hsids[order.StkCode],
@@ -199,7 +199,7 @@ func (r *Remote) RecvLoop() {
 			delete(subscription, req.stock)
 			handshake++
 			pending[handshake] = req
-			Logger.Printf("DEBUG send CmdSubReq stk=%d hs=%d\n", req.stock, handshake)
+			// Logger.Printf("DEBUG send CmdSubReq stk=%d hs=%d\n", req.stock, handshake)
 			r.command <- &common.BLTradeDTO{
 				Mix:   common.EncodeCmd(common.CmdSubReq, req.stock),
 				AskId: handshake,

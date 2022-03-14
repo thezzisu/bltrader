@@ -40,7 +40,7 @@ func (h *Hub) Start() {
 		remote.Start()
 	}
 	h.wg.Wait()
-	Logger.Println("\033[31mRecv done. Waiting for user signal...\033[0m")
+	Logger.Println("\033[32mRecv done. Waiting for user signal...")
 	h.wg.Add(1)
 	h.wg.Wait()
 }

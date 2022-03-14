@@ -233,7 +233,6 @@ func (t *Transport) SendLoop(conn net.Conn) {
 						Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
 						OrderId: req.handshake,
 					})
-					Logger.Println("DEBUG send CmdSubRes")
 				}
 			}
 
