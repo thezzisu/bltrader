@@ -130,14 +130,14 @@ func (r *Remote) RecvLoop() {
 				cmd, payload := common.DecodeCmd(dto.Mix)
 				switch cmd {
 				case common.CmdSubReq: // Subscribe request, use payload as StkId, Price as etag, AskId as handshake
-					Logger.Println("DEBUG CmdSubReq")
+					Logger.Printf("DEBUG handle CmdSubReq stk=%d hs=%d\n", payload, dto.AskId)
 					allocated := r.Allocate(payload, dto.Price, dto.AskId)
 					if allocated != -1 {
 						allocations[payload] = allocated
 					}
 
 				case common.CmdSubRes: // Subscribe response, use AskId as handshake
-					Logger.Println("DEBUG CmdSubRes")
+					Logger.Printf("DEBUG handle CmdSubRes hs=%d\n", dto.AskId)
 					if req, ok := pending[dto.AskId]; ok {
 						ch := make(chan *common.BLTrade, 128)
 						subscription[req.stock] = ch
@@ -147,7 +147,7 @@ func (r *Remote) RecvLoop() {
 					}
 
 				case common.CmdUnsub: // Unsubscribe request
-					Logger.Println("DEBUG CmdUnsub")
+					Logger.Printf("DEBUG handle CmdUnsub stk=%d hs=%d\n", payload, dto.AskId)
 					if k, ok := allocations[payload]; ok {
 						r.transportMutex.RLock()
 						if len(r.transports) > k { // Make sure we have that transport
@@ -199,7 +199,7 @@ func (r *Remote) RecvLoop() {
 			delete(subscription, req.stock)
 			handshake++
 			pending[handshake] = req
-			Logger.Println("DEBUG send CmdSubReq")
+			Logger.Printf("DEBUG send CmdSubReq stk=%d hs=%d\n", req.stock, handshake)
 			r.command <- &common.BLOrderDTO{
 				Mix:     common.EncodeCmd(common.CmdSubReq, req.stock),
 				OrderId: handshake,

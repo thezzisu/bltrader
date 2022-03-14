@@ -1,12 +1,7 @@
 package lib
 
 import (
-	"bytes"
-	"encoding/binary"
-	"fmt"
 	"math"
-	"os"
-	"path"
 	"reflect"
 	"sync"
 	"time"
@@ -225,15 +220,15 @@ subscribe:
 	sh.hub.wg.Done()
 }
 
-func saveTrade(tr *common.BLTrade, dst *os.File) {
-	buf := bytes.NewBuffer(nil)
-	_ = binary.Write(buf, binary.LittleEndian, tr.StkCode)
-	_ = binary.Write(buf, binary.LittleEndian, tr.BidId)
-	_ = binary.Write(buf, binary.LittleEndian, tr.AskId)
-	_ = binary.Write(buf, binary.LittleEndian, tr.Price)
-	_ = binary.Write(buf, binary.LittleEndian, tr.Volume)
-	_, _ = dst.Write(buf.Bytes())
-}
+// func saveTrade(tr *common.BLTrade, dst *os.File) {
+// 	buf := bytes.NewBuffer(nil)
+// 	_ = binary.Write(buf, binary.LittleEndian, tr.StkCode)
+// 	_ = binary.Write(buf, binary.LittleEndian, tr.BidId)
+// 	_ = binary.Write(buf, binary.LittleEndian, tr.AskId)
+// 	_ = binary.Write(buf, binary.LittleEndian, tr.Price)
+// 	_ = binary.Write(buf, binary.LittleEndian, tr.Volume)
+// 	_, _ = dst.Write(buf.Bytes())
+// }
 
 func (sh *StockHandler) MergeLoop() {
 	blr := new(core.BLRunner)
@@ -270,8 +265,8 @@ func (sh *StockHandler) MergeLoop() {
 		return true
 	}
 
-	tradePath := path.Join("./trades", fmt.Sprintf("trade-%d", sh.stockId))
-	tradeFile := os.OpenFile(tradePath)
+	// tradePath := path.Join("./trades", fmt.Sprintf("trade-%d", sh.stockId))
+	// tradeFile := os.OpenFile(tradePath)
 
 	for {
 		for !ready() {
@@ -306,14 +301,14 @@ func (sh *StockHandler) MergeLoop() {
 		}
 		trades := blr.Dispatch(ord)
 
-		for _, tr := range trades {
-			saveTrade(tr, tradeFile)
-		}
+		// for _, tr := range trades {
+		// 	saveTrade(tr, tradeFile)
+		// }
 
 		sh.tradest.Append(trades)
 	}
 
-	tradeFile.Close()
+	// tradeFile.Close()
 
 	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
 }
