@@ -10,89 +10,95 @@ import (
 	"github.com/thezzisu/bltrader/core"
 )
 
-var ChunkSize int
-
 type TradeStore struct {
-	offset int
-	cacheL []common.BLTrade
-	cacheR []common.BLTrade
+	size   int                     // cache size
+	source chan *common.BLTradeDTO // data source
+	cache  []*common.BLTradeDTO    // Use DTO to reduce memory usage
+	offset int                     // index of last trade in cache
+	last   int32                   // the id of last trade
+	eod    bool                    // flag to indicate the end of data
 	mutex  sync.RWMutex
 }
 
-func CreateTradeStore() *TradeStore {
-	return &TradeStore{
-		cacheL: make([]common.BLTrade, 0),
-		cacheR: make([]common.BLTrade, 0),
-	}
+func CreateTradeStore(size int) *TradeStore {
+	ts := new(TradeStore)
+	ts.size = size
+	ts.source = make(chan *common.BLTradeDTO, size)
+	ts.cache = make([]*common.BLTradeDTO, size)
+	ts.offset = -1
+	ts.last = 0
+	ts.eod = false
+	return ts
 }
 
-func (ts *TradeStore) Append(adata []common.BLTrade) {
+func (ts *TradeStore) Ensure(id int32) {
 	ts.mutex.Lock()
 	defer ts.mutex.Unlock()
 
-	ts.cacheR = append(ts.cacheR, adata...)
-	if len(ts.cacheR) > ChunkSize {
-		ts.cacheL = ts.cacheR[0:ChunkSize]
-		ts.cacheR = ts.cacheR[ChunkSize:]
-		ts.offset++
+	if ts.last >= id {
+		return
+	}
+	for ts.last < id {
+		dto, ok := <-ts.source
+		if !ok {
+			ts.eod = true
+			break
+		}
+		ts.offset = ts.offset + 1
+		if ts.offset >= ts.size {
+			ts.offset = 0
+		}
+		ts.cache[ts.offset] = dto
+		ts.last++
 	}
 }
 
-type TradeReader struct {
-	ts     *TradeStore
-	offset int
-	ptr    int
-	incR   bool
+func (ts *TradeStore) TryGet(id int32) (*common.BLTradeDTO, bool) {
+	ts.mutex.RLock()
+	defer ts.mutex.RUnlock()
+
+	if ts.last >= id {
+		loc := ts.offset - int(ts.last-id)
+		if loc < 0 {
+			loc = loc + ts.size
+		}
+		return ts.cache[loc], true
+	}
+	if ts.eod {
+		return nil, true
+	}
+	return nil, false
 }
 
-func CreateTradeReader(ts *TradeStore) *TradeReader {
+func (ts *TradeStore) Get(id int32) *common.BLTradeDTO {
+	dto, ok := ts.TryGet(id)
+	if ok {
+		return dto
+	}
+	ts.Ensure(id)
+	dto, _ = ts.TryGet(id)
+	return dto
+}
+
+type TradeReader struct {
+	store *TradeStore
+	ptr   int32 // self offset
+}
+
+func CreateTradeReader(store *TradeStore) *TradeReader {
 	t := new(TradeReader)
-	t.ts = ts
+	t.store = store
 	t.ptr = 0
-	t.incR = true
 	return t
 }
 
 func (t *TradeReader) Seek(etag int32) {
-	t.ts.mutex.RLock()
-	defer t.ts.mutex.RUnlock()
-
-	//find the first pos >= etag
-	if t.offset*ChunkSize > int(etag) {
-		t.incR = false
-	}
-	if t.offset*ChunkSize+len(t.ts.cacheR) <= int(etag) {
-		t.ptr = len(t.ts.cacheR)
-		t.incR = true
-		return
-	}
-	// [offset - 1 * C,offset * C)
-	// [offset * C,offset * C + len)
-	if t.incR {
-		t.ptr = int(etag) - t.offset*ChunkSize
-	} else {
-		t.ptr = int(etag) - (t.offset-1)*ChunkSize
-	}
+	t.ptr = etag
 }
 
-func (t *TradeReader) Next() *common.BLTrade {
-	t.ts.mutex.RLock()
-	defer t.ts.mutex.RUnlock()
-
-	if !t.incR {
-		if t.ptr == len(t.ts.cacheL) {
-			t.incR = true
-			t.ptr = 0
-			return &t.ts.cacheR[0]
-		}
-		t.ptr++
-		return &t.ts.cacheL[t.ptr-1]
-	}
-	if t.ptr == len(t.ts.cacheR) {
-		return nil
-	}
+func (t *TradeReader) Next() *common.BLTradeDTO {
 	t.ptr++
-	return &t.ts.cacheR[t.ptr-1]
+	return t.store.Get(t.ptr)
 }
 
 type StockSubscribeRequest struct {
@@ -105,8 +111,8 @@ type StockHandler struct {
 	stockId    int32
 	subscribes map[string]chan *StockSubscribeRequest
 	datas      map[string]chan *common.BLOrder
+	store      *TradeStore
 	readers    map[string]*TradeReader
-	tradest    *TradeStore
 }
 
 func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
@@ -148,9 +154,9 @@ func (sh *StockHandler) SendLoop(name string) {
 	}
 
 	for {
-		trade := reader.Next()
+		dto := reader.Next()
 
-		if trade == nil {
+		if dto == nil {
 			// Send finished
 			// Write EOF to remote
 			dto := new(common.BLTradeDTO)
@@ -171,9 +177,6 @@ func (sh *StockHandler) SendLoop(name string) {
 			}
 			continue
 		}
-
-		dto := new(common.BLTradeDTO)
-		common.MarshalTradeDTO(trade, dto)
 
 		select {
 		case req := <-subscribe:
@@ -289,7 +292,11 @@ func (sh *StockHandler) MergeLoop() {
 		}
 
 		trades := blr.Dispatch(ord)
-		sh.tradest.Append(trades)
+		for _, trade := range trades {
+			var dto common.BLTradeDTO
+			common.MarshalTradeDTO(&trade, &dto)
+			sh.store.source <- &dto
+		}
 	}
 
 	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
@@ -297,12 +304,12 @@ func (sh *StockHandler) MergeLoop() {
 }
 
 func (sh *StockHandler) Start() {
-	ChunkSize = 1000000
-	sh.tradest = CreateTradeStore()
+	cacheSize := 1000000
+	sh.store = CreateTradeStore(cacheSize)
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)
 		sh.datas[master.Name] = make(chan *common.BLOrder, 1000000)
-		sh.readers[master.Name] = CreateTradeReader(sh.tradest)
+		sh.readers[master.Name] = CreateTradeReader(sh.store)
 
 		sh.hub.wg.Add(1)
 		go sh.SendLoop(master.Name)
