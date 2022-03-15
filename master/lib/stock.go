@@ -81,7 +81,7 @@ func (si *StockInfo) Slide() {
 		si.chunkR++
 		si.cacheR = LoadOrderChunk(si.StockId, si.chunkR)
 	} else {
-		Logger.Fatalf("Stock %d\tStockInfo.Slide: no more data\n", si.StockId)
+		Logger.Fatalf("Stock \033[33m%d\033[0m\tStockInfo.Slide: no more data\n", si.StockId)
 	}
 }
 
@@ -234,7 +234,7 @@ func (sh *StockHandler) SendLoop() {
 	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
-		Logger.Printf("Stock %d\tslave subscribed since %d\n", sh.stockId, req.etag)
+		Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since %d\n", sh.stockId, req.etag)
 		if !eager {
 			close(ch)
 		}
@@ -311,11 +311,11 @@ subscribeLoop:
 func (sh *StockHandler) RecvLoop() {
 	f, err := os.Create(path.Join(sh.dataDir, fmt.Sprintf("trade%d", sh.stockId+1)))
 	if err != nil {
-		Logger.Fatalf("Stock %d\tRecvLoop %v\n", sh.stockId, err)
+		Logger.Fatalf("Stock \033[33m%d\033[0m\tRecvLoop %v\n", sh.stockId, err)
 	}
 	err = f.Chmod(0600)
 	if err != nil {
-		Logger.Fatalf("Stock %d\tRecvLoop %v\n", sh.stockId, err)
+		Logger.Fatalf("Stock \033[33m%d\033[0m\tRecvLoop %v\n", sh.stockId, err)
 	}
 	timeout := time.Millisecond * time.Duration(Config.StockRecvTimeoutMs)
 	writer := bufio.NewWriter(f)
@@ -347,12 +347,12 @@ subscribe:
 				binary.Write(writer, nativeEndian, trade.Price)
 				binary.Write(writer, nativeEndian, trade.Volume)
 			case <-timer.C:
-				Logger.Printf("Stock %d\tRecvLoop timeout\n", sh.stockId)
+				// Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop timeout\n", sh.stockId)
 				continue subscribe
 			}
 		}
 	}
-	Logger.Printf("Stock %d\tRecvLoop done\n", sh.stockId)
+	Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop done\n", sh.stockId)
 	writer.Flush()
 	f.Close()
 	sh.hub.wg.Done()

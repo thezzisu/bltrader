@@ -117,7 +117,7 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) int {
 			bestK = i
 		}
 	}
-	Logger.Printf("Remote\tSlave %s asked me for stock %d since order no.%d reply with %d\n", r.name, stock, etag, bestK)
+	// Logger.Printf("Remote\tSlave %s asked me for stock %d since order no.%d reply with %d\n", r.name, stock, etag, bestK)
 	r.transports[bestK].Allocate(stock, etag, handshake)
 	return bestK
 }
@@ -260,7 +260,7 @@ func (r *Remote) Start() {
 
 // **NOTICE** return value might be nil
 func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLTrade {
-	Logger.Printf("Remote\tAsk slave %s for stock %d since trade no.%d\n", r.name, stock, etag)
+	Logger.Printf("Remote\tAsk slave \033[33m%s\033[0m for \033[33mstock %d\033[0m since trade \033[33m%d\033[0m\n", r.name, stock, etag)
 	result := make(chan chan *common.BLTrade)
 	r.subscribes <- RemoteSubscribeRequest{stock: stock, etag: etag, result: result}
 	ch := <-result

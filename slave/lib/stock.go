@@ -176,7 +176,7 @@ func (sh *StockHandler) SendLoop(name string) {
 	var reader *TradeReader
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
-		Logger.Printf("Stock %d\tmaster %s subscribed since %d current %d\n", sh.stockId, name, req.etag, sh.store.last)
+		Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[33m%d\033[0m current \033[33m%d\033[0m\n", sh.stockId, name, req.etag, sh.store.last)
 		if !eager {
 			close(ch)
 			reader.Close()
@@ -267,12 +267,12 @@ subscribe:
 				data <- order
 
 			case <-timer.C:
-				Logger.Printf("Stock %d\tRecvLoop (%s) timeout\n", sh.stockId, name)
+				// Logger.Printf("Stock %d\tRecvLoop (%s) timeout\n", sh.stockId, name)
 				continue subscribe
 			}
 		}
 	}
-	Logger.Printf("Stock %d\tRecvLoop (%s) done\n", sh.stockId, name)
+	Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) done\n", sh.stockId, name)
 	close(data)
 	sh.hub.wg.Done()
 }
@@ -309,7 +309,7 @@ func (sh *StockHandler) MergeLoop() {
 		}
 		if m == 0 {
 			Logger.Printf("%d %d\n", caches[0].OrderId, caches[1].OrderId)
-			Logger.Fatalf("Stock %d\tMergeLoop no data", sh.stockId)
+			Logger.Fatalf("Stock \033[33m%d\033[0m\tMergeLoop no data", sh.stockId)
 		}
 		chosen, recv, ok := reflect.Select(cases[:m])
 		if ok {
@@ -357,7 +357,7 @@ func (sh *StockHandler) MergeLoop() {
 	}
 
 	sh.store.Close()
-	Logger.Printf("Stock %d\tMergeLoop done\n", sh.stockId)
+	Logger.Printf("Stock \033[33m%d\033[0m\tMergeLoop done\n", sh.stockId)
 	sh.hub.wg.Done()
 }
 
