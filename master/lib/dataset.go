@@ -98,12 +98,11 @@ func LoadOrderChunk(stock int32, chunk int) []common.BLOrder {
 
 	n := len(ids)
 	items := make([]common.BLOrder, n)
-	m := 0
 	for i := 0; i < n; i++ {
 		if types[i] == 0 && (prices[i] < lower || prices[i] > upper) {
-			continue
+			volumes[i] = 0
 		}
-		items[m] = common.BLOrder{
+		items[i] = common.BLOrder{
 			StkCode:   int32(stock),
 			OrderId:   ids[i],
 			Direction: directions[i],
@@ -111,9 +110,8 @@ func LoadOrderChunk(stock int32, chunk int) []common.BLOrder {
 			Price:     prices[i],
 			Volume:    volumes[i],
 		}
-		m++
 	}
-	return items[:m:m]
+	return items
 }
 
 func LoadHooks(stock int32) []common.BLHook {

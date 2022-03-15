@@ -241,6 +241,7 @@ func (sh *StockHandler) SendLoop() {
 		lastTag = req.etag
 	}
 
+subscribeLoop:
 	for {
 		order := info.Next()
 		if order == nil {
@@ -266,14 +267,13 @@ func (sh *StockHandler) SendLoop() {
 			continue
 		}
 
-		if dep, ok := sh.deps[order.OrderId]; ok {
-			ignore := true
+		if dep, ok := sh.deps[order.OrderId]; ok && order.Volume > 0 {
 		depLoop:
 			for {
 				select {
 				case <-dep.ch:
 					if dep.val > dep.arg {
-						ignore = false
+						order.Volume = 0
 					}
 					break depLoop
 
@@ -282,12 +282,9 @@ func (sh *StockHandler) SendLoop() {
 						req.result <- nil
 					} else {
 						replace(req, false)
-						break depLoop
+						continue subscribeLoop
 					}
 				}
-			}
-			if ignore {
-				continue
 			}
 		}
 
