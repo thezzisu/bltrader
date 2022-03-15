@@ -86,22 +86,44 @@ func (ts *TradeStore) Get(id int32) *common.BLTradeDTO {
 type TradeReader struct {
 	store *TradeStore
 	ptr   int32 // self offset
+	C     chan *common.BLTradeDTO
+	cmd   chan struct{}
+	die   chan struct{}
 }
 
-func CreateTradeReader(store *TradeStore) *TradeReader {
+func CreateTradeReader(store *TradeStore, etag int32) *TradeReader {
 	t := new(TradeReader)
 	t.store = store
-	t.ptr = 0
+	t.ptr = etag
+	t.C = make(chan *common.BLTradeDTO)
+	t.cmd = make(chan struct{})
+	t.die = make(chan struct{})
 	return t
 }
 
-func (t *TradeReader) Seek(etag int32) {
-	t.ptr = etag
+func (t *TradeReader) FetchLoop() {
+	for {
+		select {
+		case <-t.die:
+			close(t.cmd)
+			close(t.C)
+			return
+		case <-t.cmd:
+		}
+		t.ptr++
+		dto := t.store.Get(t.ptr)
+		select {
+		case <-t.die:
+			close(t.cmd)
+			close(t.C)
+			return
+		case t.C <- dto:
+		}
+	}
 }
 
-func (t *TradeReader) Next() *common.BLTradeDTO {
-	t.ptr++
-	return t.store.Get(t.ptr)
+func (t *TradeReader) Close() {
+	close(t.die)
 }
 
 type StockSubscribeRequest struct {
@@ -115,7 +137,6 @@ type StockHandler struct {
 	subscribes map[string]chan *StockSubscribeRequest
 	datas      map[string]chan *common.BLOrder
 	store      *TradeStore
-	readers    map[string]*TradeReader
 }
 
 func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
@@ -124,7 +145,6 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	sh.stockId = stockId
 	sh.subscribes = make(map[string]chan *StockSubscribeRequest)
 	sh.datas = make(map[string]chan *common.BLOrder)
-	sh.readers = make(map[string]*TradeReader)
 	return sh
 }
 
@@ -145,19 +165,35 @@ func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTrad
 }
 
 func (sh *StockHandler) SendLoop(name string) {
-	ch := make(chan *common.BLTradeDTO)
 	subscribe := sh.subscribes[name]
-	reader := sh.readers[name]
+	var ch chan *common.BLTradeDTO
+	var reader *TradeReader
 
-	replace := func(req *StockSubscribeRequest) {
+	replace := func(req *StockSubscribeRequest, eager bool) {
 		Logger.Printf("Stock %d\tmaster %s subscribed since %d\n", sh.stockId, name, req.etag)
-		close(ch)
+		if !eager {
+			close(ch)
+			reader.Close()
+		}
 		ch = req.ch
-		reader.Seek(req.etag)
+		reader = CreateTradeReader(sh.store, req.etag)
 	}
 
+	replace(<-subscribe, true)
+
 	for {
-		dto := reader.Next()
+		select {
+		case reader.cmd <- struct{}{}:
+		case req := <-subscribe:
+			replace(req, false)
+		}
+
+		var dto *common.BLTradeDTO
+		select {
+		case dto = <-reader.C:
+		case req := <-subscribe:
+			replace(req, false)
+		}
 
 		if dto == nil {
 			// Send finished
@@ -171,19 +207,20 @@ func (sh *StockHandler) SendLoop(name string) {
 			select {
 			// New subscriber
 			case req := <-subscribe:
-				replace(req)
+				replace(req, false)
 
 			// EOF sent, waiting for new subscriber
 			case ch <- dto:
-				req := <-subscribe
-				replace(req)
+				close(ch)
+				reader.Close()
+				replace(<-subscribe, true)
 			}
 			continue
 		}
 
 		select {
 		case req := <-subscribe:
-			replace(req)
+			replace(req, false)
 		case ch <- dto:
 		}
 	}
@@ -309,7 +346,6 @@ func (sh *StockHandler) Start() {
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)
 		sh.datas[master.Name] = make(chan *common.BLOrder, 1000000)
-		sh.readers[master.Name] = CreateTradeReader(sh.store)
 
 		sh.hub.wg.Add(1)
 		go sh.SendLoop(master.Name)

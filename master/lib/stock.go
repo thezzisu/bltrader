@@ -226,9 +226,9 @@ func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
 }
 
 func (sh *StockHandler) SendLoop() {
-	ch := make(chan *common.BLOrderDTO)
 	info := CreateStockInfo(sh.stockId)
-	lastTag := int32(0)
+	var ch chan *common.BLOrderDTO
+	var lastTag int32
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
 		Logger.Printf("Stock %d\tslave subscribed since %d\n", sh.stockId, req.etag)
@@ -240,6 +240,8 @@ func (sh *StockHandler) SendLoop() {
 		info.Seek(req.etag)
 		lastTag = req.etag
 	}
+
+	replace(<-sh.subscribes, true)
 
 subscribeLoop:
 	for {

@@ -9,6 +9,8 @@ import (
 )
 
 func main() {
+	lib.InitConfig()
+	lib.InitDataset()
 	count := lib.ChunkCount
 	os.MkdirAll(".data", 0700)
 	for stock := 0; stock < 10; stock++ {
