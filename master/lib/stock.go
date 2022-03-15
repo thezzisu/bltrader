@@ -234,7 +234,7 @@ func (sh *StockHandler) SendLoop() {
 	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
-		Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since %d\n", sh.stockId, req.etag)
+		Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since \033[33m%d\033[0m\n", sh.stockId, req.etag)
 		if !eager {
 			close(ch)
 		}
