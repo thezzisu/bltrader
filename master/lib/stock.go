@@ -322,6 +322,7 @@ func (sh *StockHandler) RecvLoop() {
 	lastId := int32(0)
 subscribe:
 	for {
+		writer.Flush()
 		ch := sh.remote.Subscribe(sh.stockId, lastId)
 		if ch == nil {
 			continue
