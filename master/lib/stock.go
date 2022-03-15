@@ -133,7 +133,7 @@ func (si *StockInfo) Next() *common.BLOrder {
 	if !si.incR {
 		if si.ordPtr == len(si.cacheL) {
 			si.incR = true
-			si.ordPtr = 0
+			si.ordPtr = 1
 			return &si.cacheR[0]
 		}
 		si.ordPtr++
