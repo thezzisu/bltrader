@@ -17,6 +17,7 @@ type TradeStore struct {
 	last   int32                   // the id of last trade
 	eod    bool                    // flag to indicate the end of data
 	mutex  sync.RWMutex
+	fetch  sync.Mutex
 }
 
 func CreateTradeStore(size int) *TradeStore {
@@ -35,24 +36,26 @@ func (ts *TradeStore) Close() {
 }
 
 func (ts *TradeStore) Ensure(id int32) {
-	ts.mutex.Lock()
-	defer ts.mutex.Unlock()
+	ts.fetch.Lock()
+	defer ts.fetch.Unlock()
 
 	if ts.last >= id {
 		return
 	}
-	for ts.last < id {
+	for ts.last < id && !ts.eod {
 		dto, ok := <-ts.source
+		ts.mutex.Lock()
 		if !ok {
 			ts.eod = true
-			break
+		} else {
+			ts.offset = ts.offset + 1
+			if ts.offset >= ts.size {
+				ts.offset = 0
+			}
+			ts.cache[ts.offset] = dto
+			ts.last++
 		}
-		ts.offset = ts.offset + 1
-		if ts.offset >= ts.size {
-			ts.offset = 0
-		}
-		ts.cache[ts.offset] = dto
-		ts.last++
+		ts.mutex.Unlock()
 	}
 }
 
@@ -170,7 +173,7 @@ func (sh *StockHandler) SendLoop(name string) {
 	var reader *TradeReader
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
-		Logger.Printf("Stock %d\tmaster %s subscribed since %d\n", sh.stockId, name, req.etag)
+		Logger.Printf("Stock %d\tmaster %s subscribed since %d current %d\n", sh.stockId, name, req.etag, sh.store.last)
 		if !eager {
 			close(ch)
 			reader.Close()
