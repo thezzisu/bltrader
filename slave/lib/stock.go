@@ -177,6 +177,7 @@ func (sh *StockHandler) SendLoop(name string) {
 		}
 		ch = req.ch
 		reader = CreateTradeReader(sh.store, req.etag)
+		go reader.FetchLoop()
 	}
 
 	replace(<-subscribe, true)
