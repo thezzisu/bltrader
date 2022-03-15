@@ -281,6 +281,7 @@ subscribeLoop:
 
 				case req := <-sh.subscribes:
 					if req.etag == lastTag {
+						Logger.Println("BLOCK\t\t", sh.stockId, order.OrderId)
 						req.result <- nil
 					} else {
 						replace(req, false)

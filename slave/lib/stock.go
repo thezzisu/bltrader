@@ -1,6 +1,8 @@
 package lib
 
 import (
+	"fmt"
+	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -320,6 +322,7 @@ func (sh *StockHandler) MergeLoop() {
 		return nil
 	}
 
+	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
 	for n > 0 {
 		order := next()
 		for n > 0 && order == nil {
@@ -327,11 +330,10 @@ func (sh *StockHandler) MergeLoop() {
 			order = next()
 		}
 		if order == nil {
-			if n > 0 {
-				Logger.Fatalf("Stock %d\tMergeLoop: no order found\n", sh.stockId)
-			}
 			break
 		}
+
+		fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
 
 		trades := blr.Dispatch(order)
 		for _, trade := range trades {
