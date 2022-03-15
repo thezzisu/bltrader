@@ -1,7 +1,6 @@
 package lib
 
 import (
-	"math"
 	"reflect"
 	"sync"
 	"time"
@@ -232,18 +231,13 @@ func (sh *StockHandler) MergeLoop() {
 	blr := new(core.BLRunner)
 	blr.Load()
 
-	n := len(sh.datas)
-	caches := make([]*common.BLOrder, n)
-	sources := make([]chan *common.BLOrder, n)
-	cases := make([]reflect.SelectCase, n)
-	locs := make([]int, n)
-	i := 0
+	caches := make([]*common.BLOrder, 0)
+	sources := make([]chan *common.BLOrder, 0)
 	for _, data := range sh.datas {
-		caches[i] = nil
-		sources[i] = data
-		i++
+		caches = append(caches, nil)
+		sources = append(sources, data)
 	}
-
+	n := len(caches)
 	remove := func(pos int) {
 		sources[pos] = sources[n-1]
 		sources = sources[:n-1]
@@ -252,45 +246,51 @@ func (sh *StockHandler) MergeLoop() {
 		n--
 	}
 
-	ready := func() bool {
-		for _, v := range caches {
-			if v == nil {
-				return false
+	cases := make([]reflect.SelectCase, n)
+	locs := make([]int, n)
+	load := func() {
+		m := 0
+		for i := 0; i < n; i++ {
+			if caches[i] == nil {
+				cases[m] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(sources[i])}
+				locs[m] = i
+				m++
 			}
 		}
-		return true
+		chosen, recv, ok := reflect.Select(cases[:m])
+		if ok {
+			caches[locs[chosen]] = recv.Interface().(*common.BLOrder)
+		} else {
+			remove(locs[chosen])
+		}
 	}
 
-	for {
-		for !ready() {
-			i = 0
-			for j := 0; j < n; j++ {
-				if caches[j] == nil {
-					cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(sources[j])}
-					locs[i] = j
-					i++
-				}
-			}
-			chosen, recv, ok := reflect.Select(cases[:i])
-			if ok {
-				caches[locs[chosen]] = recv.Interface().(*common.BLOrder)
-			} else {
-				remove(locs[chosen])
+	lastId := int32(0)
+	next := func() *common.BLOrder {
+		for k, v := range caches {
+			if v != nil && v.OrderId == lastId+1 {
+				caches[k] = nil
+				lastId++
+				return v
 			}
 		}
-		k, v := -1, int32(math.MaxInt32)
-		for i := 0; i < n; i++ {
-			if caches[i].OrderId < v {
-				k, v = i, caches[i].OrderId
-			}
+		return nil
+	}
+
+	for n > 0 {
+		order := next()
+		for n > 0 && order == nil {
+			load()
+			order = next()
 		}
-		if k == -1 {
+		if order == nil {
+			if n > 0 {
+				Logger.Fatalf("Stock %d\tMergeLoop: no order found\n", sh.stockId)
+			}
 			break
 		}
-		ord := caches[k]
-		caches[k] = nil
 
-		trades := blr.Dispatch(ord)
+		trades := blr.Dispatch(order)
 		for _, trade := range trades {
 			var dto common.BLTradeDTO
 			common.MarshalTradeDTO(&trade, &dto)
