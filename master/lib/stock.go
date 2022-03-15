@@ -38,6 +38,31 @@ type StockInfo struct {
 	chunkR  int
 }
 
+func CreateStockInfo(stockId int32) *StockInfo {
+	if ChunkCount == 1 {
+		// Since we only have one chunk, just load it as cacheR
+		return &StockInfo{
+			StockId: stockId,
+			cacheL:  make([]common.BLOrder, 0),
+			chunkL:  0,
+			cacheR:  LoadOrderChunk(stockId, 0),
+			chunkR:  0,
+			ordPtr:  0,
+			incR:    true,
+		}
+	} else {
+		return &StockInfo{
+			StockId: stockId,
+			cacheL:  LoadOrderChunk(stockId, 0),
+			chunkL:  0,
+			cacheR:  LoadOrderChunk(stockId, 1),
+			chunkR:  1,
+			ordPtr:  0,
+			incR:    false,
+		}
+	}
+}
+
 func (si *StockInfo) String() string {
 	return fmt.Sprintf(
 		"StockInfo {\n\tstock = %d\n\twinL = [%d, %d]\n\twinR = [%d, %d]\n}",
@@ -125,31 +150,6 @@ func (si *StockInfo) Next() *common.BLOrder {
 	return &si.cacheR[si.ordPtr-1]
 }
 
-func CreateStockInfo(stockId int32) *StockInfo {
-	if ChunkCount == 1 {
-		// Since we only have one chunk, just load it as cacheR
-		return &StockInfo{
-			StockId: stockId,
-			cacheL:  make([]common.BLOrder, 0),
-			chunkL:  0,
-			cacheR:  LoadOrderChunk(stockId, 0),
-			chunkR:  0,
-			ordPtr:  0,
-			incR:    true,
-		}
-	} else {
-		return &StockInfo{
-			StockId: stockId,
-			cacheL:  LoadOrderChunk(stockId, 0),
-			chunkL:  0,
-			cacheR:  LoadOrderChunk(stockId, 1),
-			chunkR:  1,
-			ordPtr:  0,
-			incR:    false,
-		}
-	}
-}
-
 type StockOrderDep struct {
 	arg int32
 	val int32
@@ -157,8 +157,8 @@ type StockOrderDep struct {
 }
 
 type StockSubscribeRequest struct {
-	etag int32
-	ch   chan *common.BLOrderDTO
+	etag   int32
+	result chan chan *common.BLOrderDTO
 }
 
 type StockHandler struct {
@@ -210,19 +210,10 @@ func (sh *StockHandler) InitDeps() {
 }
 
 func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
-	ch := make(chan *common.BLOrderDTO, 128)
-	timer := time.NewTimer(time.Millisecond * 100)
-	select {
-	case sh.subscribes <- &StockSubscribeRequest{etag: etag, ch: ch}:
-		if !timer.Stop() {
-			<-timer.C
-		}
-		return ch
-
-	case <-timer.C:
-		close(ch)
-		return nil
-	}
+	result := make(chan chan *common.BLOrderDTO, 128)
+	sh.subscribes <- &StockSubscribeRequest{etag, result}
+	ch := <-result
+	return ch
 }
 
 func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
@@ -237,14 +228,17 @@ func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
 func (sh *StockHandler) SendLoop() {
 	ch := make(chan *common.BLOrderDTO)
 	info := CreateStockInfo(sh.stockId)
+	lastTag := int32(0)
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
 		Logger.Printf("Stock %d\tslave subscribed since %d\n", sh.stockId, req.etag)
 		if !eager {
 			close(ch)
 		}
-		ch = req.ch
+		ch := make(chan *common.BLOrderDTO)
+		req.result <- ch
 		info.Seek(req.etag)
+		lastTag = req.etag
 	}
 
 	for {
@@ -273,8 +267,26 @@ func (sh *StockHandler) SendLoop() {
 		}
 
 		if dep, ok := sh.deps[order.OrderId]; ok {
-			<-dep.ch
-			if dep.val > dep.arg {
+			ignore := true
+		depLoop:
+			for {
+				select {
+				case <-dep.ch:
+					if dep.val > dep.arg {
+						ignore = false
+					}
+					break depLoop
+
+				case req := <-sh.subscribes:
+					if req.etag == lastTag {
+						req.result <- nil
+					} else {
+						replace(req, false)
+						break depLoop
+					}
+				}
+			}
+			if ignore {
 				continue
 			}
 		}
@@ -286,6 +298,7 @@ func (sh *StockHandler) SendLoop() {
 		case req := <-sh.subscribes:
 			replace(req, false)
 		case ch <- dto:
+			lastTag = order.OrderId
 		}
 	}
 }
