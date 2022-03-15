@@ -344,12 +344,14 @@ func (sh *StockHandler) MergeLoop() {
 
 		fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
 
-		trades := blr.Dispatch(order)
-		for _, trade := range trades {
-			var dto common.BLTradeDTO
-			common.MarshalTradeDTO(&trade, &dto)
-			fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
-			sh.store.source <- &dto
+		if order.Volume != 0 {
+			trades := blr.Dispatch(order)
+			for _, trade := range trades {
+				var dto common.BLTradeDTO
+				common.MarshalTradeDTO(&trade, &dto)
+				fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
+				sh.store.source <- &dto
+			}
 		}
 	}
 
