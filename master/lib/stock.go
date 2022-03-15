@@ -217,6 +217,8 @@ func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
 }
 
 func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
+	fmt.Println(tradeId)
+	fmt.Println(trade)
 	if deps, ok := sh.interested[tradeId]; ok {
 		for _, dep := range deps {
 			dep.val = trade.Volume
