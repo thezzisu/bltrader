@@ -24,8 +24,8 @@ type ShortOrder struct {
 type BLRunner struct {
 	buyTree    *treemap.Map
 	sellTree   *treemap.Map
-	buyVolume  int32
-	sellVolume int32
+	buyVolume  int64
+	sellVolume int64
 	queuePool  *sync.Pool
 }
 
@@ -68,10 +68,10 @@ func (blrunner *BLRunner) GenTrade(order *common.BLOrder, oid int32, ovo int32, 
 		vol = ovo
 	}
 	if isMeBuy {
-		blrunner.sellVolume -= vol
+		blrunner.sellVolume -= int64(vol)
 		return common.BLTrade{StkCode: order.StkCode, BidId: order.OrderId, AskId: oid, Price: price, Volume: vol}
 	} else {
-		blrunner.buyVolume -= vol
+		blrunner.buyVolume -= int64(vol)
 		return common.BLTrade{StkCode: order.StkCode, BidId: oid, AskId: order.OrderId, Price: price, Volume: vol}
 	}
 }
@@ -122,9 +122,9 @@ func (blrunner *BLRunner) dealLimit(order *common.BLOrder) []common.BLTrade {
 		shorter.Volume = order.Volume
 		blrunner.InsertOrder(blrunner.MyTree(order), &shorter)
 		if isMeBuy {
-			blrunner.buyVolume += shorter.Volume
+			blrunner.buyVolume += int64(shorter.Volume)
 		} else {
-			blrunner.sellVolume += shorter.Volume
+			blrunner.sellVolume += int64(shorter.Volume)
 		}
 	}
 	return trades
@@ -168,9 +168,9 @@ func (blrunner *BLRunner) oppoBest(order *common.BLOrder) []common.BLTrade {
 		shorter.Volume = order.Volume
 		blrunner.InsertOrder(blrunner.MyTree(order), &shorter)
 		if isMeBuy {
-			blrunner.buyVolume += shorter.Volume
+			blrunner.buyVolume += int64(shorter.Volume)
 		} else {
-			blrunner.sellVolume += shorter.Volume
+			blrunner.sellVolume += int64(shorter.Volume)
 		}
 	}
 	return trades
@@ -191,9 +191,9 @@ func (blrunner *BLRunner) selfBest(order *common.BLOrder) []common.BLTrade {
 	}
 	shorter.Price, q = a_.(float64), b_.(*Queue)
 	if isMeBuy {
-		blrunner.buyVolume += shorter.Volume
+		blrunner.buyVolume += int64(shorter.Volume)
 	} else {
-		blrunner.sellVolume += shorter.Volume
+		blrunner.sellVolume += int64(shorter.Volume)
 	}
 	q.Push(blrunner.queuePool, shorter.OrderId, shorter.Volume)
 	return trades
@@ -273,13 +273,13 @@ func (blrunner *BLRunner) ins5Once(order *common.BLOrder) []common.BLTrade {
 
 func (blrunner *BLRunner) allinOnce(order *common.BLOrder) []common.BLTrade {
 	if order.Direction == common.DirBuy {
-		if order.Volume <= blrunner.sellVolume {
+		if int64(order.Volume) <= blrunner.sellVolume {
 			return blrunner.insOnce(order)
 		} else {
 			return []common.BLTrade{}
 		}
 	} else {
-		if order.Volume <= blrunner.buyVolume {
+		if int64(order.Volume) <= blrunner.buyVolume {
 			return blrunner.insOnce(order)
 		} else {
 			return []common.BLTrade{}
@@ -392,6 +392,8 @@ func (so *ShortOrder) Write(chunk *FChunk) {
 
 /*
 
+TODO refactor these code
+
 Write the _Volume in the first order
 order.Volume
 order.OrderId = order.Price = 0
@@ -417,7 +419,7 @@ func (blrunner *BLRunner) Load() {
 	bFile, _ := os.OpenFile("./buy_cache", os.O_RDONLY, 0600)
 	sFile, _ := os.OpenFile("./sell_cache", os.O_RDONLY, 0600)
 
-	ReadCache := func(rFile *os.File, sVolume *int32, tree *treemap.Map) {
+	ReadCache := func(rFile *os.File, sVolume *int64, tree *treemap.Map) {
 		var order ShortOrder
 		chunk := new(FChunk)
 		chunk.Bind(rFile)
@@ -425,7 +427,7 @@ func (blrunner *BLRunner) Load() {
 		if end {
 			return
 		}
-		*sVolume = order.Volume
+		*sVolume = int64(order.Volume)
 		fmt.Printf("sVolume %d\n", *sVolume)
 		for {
 			end = order.Read(chunk)
@@ -449,11 +451,12 @@ func (blrunner *BLRunner) Dump() {
 		panic("Failed to write cache")
 	}
 
-	WriteCache := func(wFile *os.File, sVolume int32, tree *treemap.Map) {
+	WriteCache := func(wFile *os.File, sVolume int64, tree *treemap.Map) {
 		chunk := new(FChunk)
 		chunk.Bind(wFile)
 		var order ShortOrder
-		order.Volume = sVolume
+		// TODO fixme
+		order.Volume = int32(sVolume)
 		order.Write(chunk)
 		it := tree.Iterator()
 		for it.Next() {
