@@ -329,7 +329,7 @@ subscribe:
 					<-timer.C
 				}
 				if !ok {
-					break
+					continue subscribe
 				}
 				if trade.AskId == -1 {
 					break subscribe

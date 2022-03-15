@@ -239,6 +239,8 @@ func (sh *StockHandler) RecvLoop(name string) {
 	data := sh.datas[name]
 	etag := int32(0)
 	timeout := time.Millisecond * time.Duration(Config.StockHandlerTimeoutMs)
+	f, _ := os.Create(fmt.Sprintf("stock-%d-%s.txt", sh.stockId, name))
+
 subscribe:
 	for {
 		ch := remote.Subscribe(sh.stockId, etag)
@@ -253,12 +255,13 @@ subscribe:
 					<-timer.C
 				}
 				if !ok {
-					break
+					continue subscribe
 				}
 				if order.OrderId == -1 {
 					break subscribe
 				}
 				etag = order.OrderId
+				fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
 				data <- order
 
 			case <-timer.C:
@@ -303,6 +306,7 @@ func (sh *StockHandler) MergeLoop() {
 			}
 		}
 		if m == 0 {
+			Logger.Printf("%d %d\n", caches[0].OrderId, caches[1].OrderId)
 			Logger.Fatalf("Stock %d\tMergeLoop no data", sh.stockId)
 		}
 		chosen, recv, ok := reflect.Select(cases[:m])
