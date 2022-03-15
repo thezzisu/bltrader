@@ -302,6 +302,9 @@ func (sh *StockHandler) MergeLoop() {
 				m++
 			}
 		}
+		if m == 0 {
+			Logger.Fatalf("Stock %d\tMergeLoop no data", sh.stockId)
+		}
 		chosen, recv, ok := reflect.Select(cases[:m])
 		if ok {
 			caches[locs[chosen]] = recv.Interface().(*common.BLOrder)
