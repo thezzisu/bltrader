@@ -229,6 +229,7 @@ func (sh *StockHandler) SendLoop() {
 	info := CreateStockInfo(sh.stockId)
 	var ch chan *common.BLOrderDTO
 	var lastTag int32
+	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
 		Logger.Printf("Stock %d\tslave subscribed since %d\n", sh.stockId, req.etag)
@@ -238,6 +239,7 @@ func (sh *StockHandler) SendLoop() {
 		ch = make(chan *common.BLOrderDTO)
 		req.result <- ch
 		info.Seek(req.etag)
+		fmt.Fprintf(f, "Seek at %d\n", req.etag)
 		lastTag = req.etag
 	}
 
@@ -299,6 +301,7 @@ subscribeLoop:
 			replace(req, false)
 		case ch <- dto:
 			lastTag = order.OrderId
+			fmt.Fprintf(f, "%d\n", order.OrderId)
 		}
 	}
 }

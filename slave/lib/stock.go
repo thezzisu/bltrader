@@ -244,6 +244,7 @@ func (sh *StockHandler) RecvLoop(name string) {
 subscribe:
 	for {
 		ch := remote.Subscribe(sh.stockId, etag)
+		fmt.Fprintf(f, "Subscribed since %d\n", etag)
 		if ch == nil {
 			continue
 		}
