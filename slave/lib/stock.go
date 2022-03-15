@@ -323,6 +323,7 @@ func (sh *StockHandler) MergeLoop() {
 	}
 
 	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
+	g, _ := os.Create(fmt.Sprintf("trade-%d.txt", sh.stockId))
 	for n > 0 {
 		order := next()
 		for n > 0 && order == nil {
@@ -339,6 +340,7 @@ func (sh *StockHandler) MergeLoop() {
 		for _, trade := range trades {
 			var dto common.BLTradeDTO
 			common.MarshalTradeDTO(&trade, &dto)
+			fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
 			sh.store.source <- &dto
 		}
 	}
