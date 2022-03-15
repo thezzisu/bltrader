@@ -235,7 +235,7 @@ func (sh *StockHandler) SendLoop() {
 		if !eager {
 			close(ch)
 		}
-		ch := make(chan *common.BLOrderDTO)
+		ch = make(chan *common.BLOrderDTO)
 		req.result <- ch
 		info.Seek(req.etag)
 		lastTag = req.etag
