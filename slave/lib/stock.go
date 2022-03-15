@@ -362,7 +362,7 @@ func (sh *StockHandler) MergeLoop() {
 }
 
 func (sh *StockHandler) Start() {
-	cacheSize := 1000000
+	cacheSize := Config.TradeStoreSize
 	sh.store = CreateTradeStore(cacheSize)
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)

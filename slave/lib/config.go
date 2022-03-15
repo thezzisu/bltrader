@@ -25,6 +25,7 @@ type SlaveConfig struct {
 	ProcessTimeoutMs      int          `json:"ProcessTimeoutMs"`
 	FlushIntervalMs       int          `json:"FlushIntervalMs"`
 	SendBufferSize        int          `json:"SendBufferSize"`
+	TradeStoreSize        int          `json:"TradeStoreSize"`
 }
 
 var Config SlaveConfig
