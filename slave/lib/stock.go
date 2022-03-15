@@ -187,6 +187,7 @@ func (sh *StockHandler) SendLoop(name string) {
 		case reader.cmd <- struct{}{}:
 		case req := <-subscribe:
 			replace(req, false)
+			continue
 		}
 
 		var dto *common.BLTradeDTO
@@ -194,6 +195,7 @@ func (sh *StockHandler) SendLoop(name string) {
 		case dto = <-reader.C:
 		case req := <-subscribe:
 			replace(req, false)
+			continue
 		}
 
 		if dto == nil {
