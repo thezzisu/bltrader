@@ -2,7 +2,6 @@
   "Name": "S2",
   "DataDir": "/data/team-11/Data/slave-mid",
   "Magic": 19260817,
-  "Compress": false,
   "Procs": 16,
   "Masters": [
     {
@@ -15,5 +14,8 @@
   "Stocks": [5, 6, 7, 8, 9],
   "StockHandlerTimeoutMs": 1000,
   "ShaperIntervalMs": 30000,
-  "SubscribeTimeoutMs": 2000
+  "SubscribeTimeoutMs": 2000,
+  "ProcessTimeoutMs": 100,
+  "FlushIntervalMs": 100,
+  "SendBufferSize": 1400
 }

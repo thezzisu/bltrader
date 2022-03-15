@@ -130,7 +130,7 @@ func (r *Remote) RecvLoop() {
 	allocations := make(map[int32]int)
 
 	subscribeTimeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
-	processTimeout := time.Millisecond * 100
+	processTimeout := time.Duration(Config.ProcessTimeoutMs) * time.Millisecond
 	for {
 		select {
 		case packet := <-r.incoming:

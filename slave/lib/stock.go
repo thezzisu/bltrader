@@ -153,6 +153,7 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	return sh
 }
 
+// TODO optimize this function
 func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTradeDTO {
 	ch := make(chan *common.BLTradeDTO)
 	timer := time.NewTimer(time.Millisecond * 100)

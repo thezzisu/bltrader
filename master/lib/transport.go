@@ -165,7 +165,6 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 }
 
 func (t *Transport) SendLoop(conn net.Conn) {
-	// TODO consider MTU
 	writer := bufio.NewWriterSize(conn, Config.SendBufferSize)
 	timeout := time.Duration(Config.FlushIntervalMs) * time.Millisecond
 	var err error
