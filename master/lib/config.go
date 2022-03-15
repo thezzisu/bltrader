@@ -17,14 +17,15 @@ type MasterConfig struct {
 	Name               string      `json:"Name"`
 	CacheDir           string      `json:"CacheDir"`
 	DataDir            string      `json:"DataDir"`
-	Listen             string      `json:"Listen"`
 	Magic              uint32      `json:"Magic"`
-	Compress           bool        `json:"Compress"`
 	Procs              int         `json:"Procs"`
 	Slaves             []SlaveInfo `json:"Slaves"`
 	StockRecvTimeoutMs int         `json:"StockRecvTimeoutMs"`
 	ShaperIntervalMs   int         `json:"ShaperIntervalMs"`
 	SubscribeTimeoutMs int         `json:"SubscribeTimeoutMs"`
+	ProcessTimeoutMs   int         `json:"ProcessTimeoutMs"`
+	FlushIntervalMs    int         `json:"FlushIntervalMs"`
+	SendBufferSize     int         `json:"SendBufferSize"`
 }
 
 var Config MasterConfig

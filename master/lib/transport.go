@@ -166,7 +166,8 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 
 func (t *Transport) SendLoop(conn net.Conn) {
 	// TODO consider MTU
-	writer := bufio.NewWriterSize(conn, 1400)
+	writer := bufio.NewWriterSize(conn, Config.SendBufferSize)
+	timeout := time.Duration(Config.FlushIntervalMs) * time.Millisecond
 	var err error
 
 	const SPECIAL = 3
@@ -184,8 +185,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	}
 
 	for {
-		// flush data every 100ms
-		timer := time.NewTimer(time.Millisecond * 100)
+		timer := time.NewTimer(timeout)
 		cases[2] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(timer.C),

@@ -2,9 +2,7 @@
   "Name": "M2",
   "CacheDir": "/data/team-11/Data/cache-mid",
   "DataDir": "/data/team-11/Data/master-mid",
-  "Listen": "127.0.0.1:19260",
   "Magic": 19260817,
-  "Compress": false,
   "Procs": 16,
   "Slaves": [
     {
@@ -18,5 +16,8 @@
   ],
   "StockRecvTimeoutMs": 1000,
   "ShaperIntervalMs": 30000,
-  "SubscribeTimeoutMs": 2000
+  "SubscribeTimeoutMs": 2000,
+  "ProcessTimeoutMs": 100,
+  "FlushIntervalMs": 100,
+  "SendBufferSize": 1400
 }
