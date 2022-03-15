@@ -19,13 +19,24 @@ type RemoteSubscribeRequest struct {
 	result chan chan *common.BLTrade
 }
 
+type RemotePacket struct {
+	src  int
+	data *common.BLTradeDTO
+}
+
+type RemoteSubscription struct {
+	ch  chan *common.BLTrade
+	hs  int32
+	src int
+}
+
 type Remote struct {
 	hub            *Hub
 	manager        *common.RPCPairManager
 	transports     []*Transport
 	transportMutex sync.RWMutex
 	name           string
-	incoming       chan *common.BLTradeDTO
+	incoming       chan RemotePacket
 	subscribes     chan RemoteSubscribeRequest
 	command        chan *common.BLOrderDTO
 	reshape        chan struct{}
@@ -39,7 +50,7 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.hub = hub
 	r.manager = common.CreateRPCPairManager(configPath)
 	r.name = name
-	r.incoming = make(chan *common.BLTradeDTO, 128)
+	r.incoming = make(chan RemotePacket, 128)
 	r.subscribes = make(chan RemoteSubscribeRequest)
 	r.command = make(chan *common.BLOrderDTO)
 	r.reshape = make(chan struct{}, 16)
@@ -66,13 +77,13 @@ func (r *Remote) Reload() {
 		if pairs[i].MasterAddr != r.transports[i].pair.MasterAddr || pairs[i].SlaveAddr != r.transports[i].pair.SlaveAddr {
 			Logger.Printf("Remote\tReload %s: closing endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 			r.transports[i].Close()
-			r.transports[i] = CreateTransport(r, pairs[i])
+			r.transports[i] = CreateTransport(r, i, pairs[i])
 			r.transports[i].Start()
 			Logger.Printf("Remote\tReload %s: new endpoint %s <-> %s", r.name, r.transports[i].pair.MasterAddr, r.transports[i].pair.SlaveAddr)
 		}
 	}
 	for i := len(r.transports); i < len(pairs); i++ {
-		endpoint := CreateTransport(r, pairs[i])
+		endpoint := CreateTransport(r, i, pairs[i])
 		r.transports = append(r.transports, endpoint)
 		endpoint.Start()
 		Logger.Printf("Remote\tReload %s: new endpoint %s <-> %s", r.name, endpoint.pair.MasterAddr, endpoint.pair.SlaveAddr)
@@ -114,18 +125,16 @@ func (r *Remote) Allocate(stock int32, etag int32, handshake int32) int {
 func (r *Remote) RecvLoop() {
 	pending := make(map[int32]RemoteSubscribeRequest)
 	expired := make(chan int32)
-	subscription := make(map[int32]chan *common.BLTrade)
-	hsids := make(map[int32]int32)
+	subscription := make(map[int32]RemoteSubscription)
 	handshake := int32(0)
 	allocations := make(map[int32]int)
-	lastUnsub := make(map[int32]time.Time)
 
 	subscribeTimeout := time.Duration(Config.SubscribeTimeoutMs) * time.Millisecond
-	unsubTimeout := time.Millisecond * 500
 	processTimeout := time.Millisecond * 100
 	for {
 		select {
-		case dto := <-r.incoming:
+		case packet := <-r.incoming:
+			dto := packet.data
 			if common.IsCmd(dto.Mix) {
 				cmd, payload := common.DecodeCmd(dto.Mix)
 				switch cmd {
@@ -140,8 +149,11 @@ func (r *Remote) RecvLoop() {
 					// Logger.Printf("DEBUG handle CmdSubRes hs=%d\n", dto.AskId)
 					if req, ok := pending[dto.AskId]; ok {
 						ch := make(chan *common.BLTrade, 128)
-						subscription[req.stock] = ch
-						hsids[req.stock] = dto.AskId
+						subscription[req.stock] = RemoteSubscription{
+							ch:  ch,
+							hs:  dto.AskId,
+							src: packet.src,
+						}
 						req.result <- ch
 						delete(pending, dto.AskId)
 					}
@@ -160,31 +172,22 @@ func (r *Remote) RecvLoop() {
 			} else {
 				var trade common.BLTrade
 				common.UnmarshalTradeDTO(dto, &trade)
-				if ch, ok := subscription[trade.StkCode]; ok {
+				if sub, ok := subscription[trade.StkCode]; ok && sub.src == packet.src {
 					timer := time.NewTimer(processTimeout)
 					select {
-					case ch <- &trade:
+					case sub.ch <- &trade:
 						if !timer.Stop() {
 							<-timer.C
 						}
 
 					case <-timer.C:
-						close(ch)
+						close(sub.ch)
 						delete(subscription, trade.StkCode)
 						// Logger.Printf("DEBUG send CmdUnsub reason=timeout stk=%d hs=%d\n", trade.StkCode, hsids[trade.StkCode])
 						r.command <- &common.BLOrderDTO{
 							Mix:     common.EncodeCmd(common.CmdUnsub, trade.StkCode),
-							OrderId: hsids[trade.StkCode],
+							OrderId: sub.hs,
 						}
-					}
-				} else {
-					if ts, ok := lastUnsub[trade.StkCode]; !ok || time.Since(ts) > unsubTimeout {
-						// Logger.Printf("DEBUG send CmdUnsub reason=notfound stk=%d hs=%d\n", trade.StkCode, hsids[trade.StkCode])
-						r.command <- &common.BLOrderDTO{
-							Mix:     common.EncodeCmd(common.CmdUnsub, trade.StkCode),
-							OrderId: hsids[trade.StkCode],
-						}
-						lastUnsub[trade.StkCode] = time.Now()
 					}
 				}
 			}
@@ -196,7 +199,10 @@ func (r *Remote) RecvLoop() {
 			}
 
 		case req := <-r.subscribes:
-			delete(subscription, req.stock)
+			if sub, ok := subscription[req.stock]; ok {
+				close(sub.ch)
+				delete(subscription, req.stock)
+			}
 			handshake++
 			pending[handshake] = req
 			// Logger.Printf("DEBUG send CmdSubReq stk=%d hs=%d\n", req.stock, handshake)

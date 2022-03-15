@@ -24,6 +24,7 @@ type TransportCmd struct {
 type Transport struct {
 	hub               *Hub
 	remote            *Remote
+	id                int
 	pair              common.RPCPair
 	die               chan struct{}
 	dieOnce           sync.Once
@@ -32,12 +33,12 @@ type Transport struct {
 	cmds              chan TransportCmd
 }
 
-func CreateTransport(remote *Remote, pair common.RPCPair) *Transport {
+func CreateTransport(remote *Remote, id int, pair common.RPCPair) *Transport {
 	t := new(Transport)
 	t.hub = remote.hub
 	t.remote = remote
+	t.id = id
 	t.pair = pair
-
 	t.die = make(chan struct{})
 	t.incomingConn = make(chan net.Conn)
 	t.subscriptionCount = 0
@@ -156,7 +157,10 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 			conn.Close()
 			return
 		}
-		t.remote.incoming <- &dto
+		t.remote.incoming <- RemotePacket{
+			src:  t.id,
+			data: &dto,
+		}
 	}
 }
 
