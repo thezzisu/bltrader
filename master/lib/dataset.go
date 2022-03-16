@@ -101,7 +101,7 @@ func LoadOrderChunk(stock int32, chunk int) []common.BLOrder {
 	n := len(ids)
 	items := make([]common.BLOrder, n)
 	for i := 0; i < n; i++ {
-		if types[i] == 0 && (prices[i] <= lower || prices[i] >= upper) {
+		if types[i] == 0 && (prices[i] < lower || prices[i] > upper) {
 			volumes[i] = 0
 		}
 		items[i] = common.BLOrder{
