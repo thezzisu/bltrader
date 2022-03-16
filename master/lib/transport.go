@@ -203,9 +203,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			if !timer.Stop() {
 				<-timer.C
 			}
-			order := recv.Interface().(*common.BLOrder)
-			var dto common.BLOrderDTO
-			common.MarshalOrderDTO(subs[chosen].sid, order, &dto)
+			dto := recv.Interface().(*common.BLOrderDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
 
 		case 1: // Handle transport's command
@@ -277,7 +275,9 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				}
 				continue
 			}
-			dto := recv.Interface().(*common.BLOrderDTO)
+			order := recv.Interface().(*common.BLOrder)
+			var dto common.BLOrderDTO
+			common.MarshalOrderDTO(subs[chosen].sid, order, &dto)
 			err = binary.Write(writer, binary.LittleEndian, dto)
 		}
 

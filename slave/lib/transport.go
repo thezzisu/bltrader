@@ -176,14 +176,8 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			if !timer.Stop() {
 				<-timer.C
 			}
-			trade := recv.Interface().(*BLTradeComp)
-			err = binary.Write(writer, binary.LittleEndian, common.BLTradeDTO{
-				Sid:    subs[chosen].sid,
-				Volume: trade.Volume,
-				BidId:  trade.BidId,
-				AskId:  trade.AskId,
-				Price:  trade.Price,
-			})
+			dto := recv.Interface().(*common.BLTradeDTO)
+			err = binary.Write(writer, binary.LittleEndian, dto)
 
 		case 1: // Handle transport's command
 			if !timer.Stop() {
@@ -254,8 +248,14 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				}
 				continue
 			}
-			dto := recv.Interface().(*common.BLTradeDTO)
-			err = binary.Write(writer, binary.LittleEndian, dto)
+			trade := recv.Interface().(*BLTradeComp)
+			err = binary.Write(writer, binary.LittleEndian, common.BLTradeDTO{
+				Sid:    subs[chosen].sid,
+				Volume: trade.Volume,
+				BidId:  trade.BidId,
+				AskId:  trade.AskId,
+				Price:  trade.Price,
+			})
 		}
 
 		if err != nil {
