@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"path"
 
@@ -94,8 +93,9 @@ func LoadOrderChunk(stock int32, chunk int) []common.BLOrder {
 	ids, directions, types, prices, volumes := <-idsCh, <-directionsCh, <-typesCh, <-pricesCh, <-volumesCh
 
 	prev := lastPrev[stock]
-	lower := math.Round(prev*9) / 10
-	upper := math.Round(prev*11) / 10
+	diff := prev * 0.1
+	lower := prev - diff
+	upper := prev + diff
 
 	n := len(ids)
 	items := make([]common.BLOrder, n)
