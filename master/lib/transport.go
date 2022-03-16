@@ -16,9 +16,14 @@ import (
 )
 
 type TransportCmd struct {
-	stock     int32
-	etag      int32
-	handshake int32
+	stock int32
+	etag  int32
+	hs    int32
+}
+
+type TransportSubscription struct {
+	stock int32
+	hs    int32
 }
 
 type Transport struct {
@@ -30,6 +35,7 @@ type Transport struct {
 	dieOnce           sync.Once
 	incomingConn      chan net.Conn
 	subscriptionCount int32
+	ready             int32
 	cmds              chan TransportCmd
 }
 
@@ -136,6 +142,7 @@ func (t *Transport) HandleLoop() {
 			if lastConn != nil {
 				lastConn.Close()
 			}
+			atomic.StoreInt32(&t.ready, 1)
 			go t.RecvLoop(newConn)
 			go t.SendLoop(newConn)
 			lastConn = newConn
@@ -171,15 +178,15 @@ func (t *Transport) SendLoop(conn net.Conn) {
 
 	const SPECIAL = 3
 	cases := make([]reflect.SelectCase, SPECIAL)
-	hsids := make([]int32, SPECIAL)
+	subs := make([]TransportSubscription, SPECIAL)
 	cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.remote.command)}
 	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.cmds)}
 
 	remove := func(pos int) {
 		cases[pos] = cases[len(cases)-1]
 		cases = cases[:len(cases)-1]
-		hsids[pos] = hsids[len(hsids)-1]
-		hsids = hsids[:len(hsids)-1]
+		subs[pos] = subs[len(subs)-1]
+		subs = subs[:len(subs)-1]
 		atomic.AddInt32(&t.subscriptionCount, -1)
 	}
 
@@ -208,7 +215,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			case -1: // Unsubscribe
 				pos := 0
 				for i := SPECIAL; i < len(cases); i++ {
-					if hsids[i] == req.handshake {
+					if subs[i].hs == req.hs {
 						pos = i
 					}
 				}
@@ -229,12 +236,15 @@ func (t *Transport) SendLoop(conn net.Conn) {
 						Dir:  reflect.SelectRecv,
 						Chan: reflect.ValueOf(ch),
 					})
-					hsids = append(hsids, req.handshake)
+					subs = append(subs, TransportSubscription{
+						stock: req.stock,
+						hs:    req.hs,
+					})
 					atomic.AddInt32(&t.subscriptionCount, 1)
 
 					err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
 						Mix:     common.EncodeCmd(common.CmdSubRes, req.stock),
-						OrderId: req.handshake,
+						OrderId: req.hs,
 					})
 				}
 			}

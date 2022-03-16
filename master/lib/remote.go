@@ -163,7 +163,7 @@ func (r *Remote) RecvLoop() {
 					if k, ok := allocations[payload]; ok {
 						r.transportMutex.RLock()
 						if len(r.transports) > k { // Make sure we have that transport
-							r.transports[k].Unallocate(payload)
+							r.transports[k].Unallocate(dto.AskId)
 						}
 						r.transportMutex.RUnlock()
 						delete(allocations, payload)
@@ -236,6 +236,7 @@ func (r *Remote) ShaperLoop() {
 		k := 0
 		for i, t := range r.transports {
 			count := atomic.LoadInt32(&t.subscriptionCount)
+			Logger.Printf("Remote\tShaper %s transport %d load %d", r.name, i, count)
 			if count < min {
 				min = count
 			}
@@ -245,7 +246,7 @@ func (r *Remote) ShaperLoop() {
 			}
 		}
 		if max >= 2 && max-min > 0 {
-			Logger.Printf("Remote\tShaper slave %s with transport %d", r.name, k)
+			Logger.Printf("Remote\tShaper %s with transport %d", r.name, k)
 			r.transports[k].Shape()
 		}
 		r.transportMutex.RUnlock()
