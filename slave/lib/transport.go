@@ -16,12 +16,12 @@ import (
 type TransportCmd struct {
 	stock int32
 	etag  int32
-	hs    int32
+	sid   int16
 }
 
 type TransportSubscription struct {
 	stock int32
-	hs    int32
+	sid   int16
 }
 
 type Transport struct {
@@ -176,8 +176,14 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			if !timer.Stop() {
 				<-timer.C
 			}
-			dto := recv.Interface().(*common.BLTradeDTO)
-			err = binary.Write(writer, binary.LittleEndian, dto)
+			trade := recv.Interface().(*BLTradeComp)
+			err = binary.Write(writer, binary.LittleEndian, common.BLTradeDTO{
+				Sid:    subs[chosen].sid,
+				Volume: trade.Volume,
+				BidId:  trade.BidId,
+				AskId:  trade.AskId,
+				Price:  trade.Price,
+			})
 
 		case 1: // Handle transport's command
 			if !timer.Stop() {
@@ -188,7 +194,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			case -1: // Unsubscribe
 				pos := 0
 				for i := SPECIAL; i < len(cases); i++ {
-					if subs[i].hs == req.hs {
+					if subs[i].sid == req.sid {
 						pos = i
 					}
 				}
@@ -220,14 +226,14 @@ func (t *Transport) SendLoop(conn net.Conn) {
 					})
 					subs = append(subs, TransportSubscription{
 						stock: req.stock,
-						hs:    req.hs,
+						sid:   req.sid,
 					})
 					atomic.AddInt32(&t.subscriptionCount, 1)
 					Logger.Printf("Transport %s %d\tSendLoop count = %d len = %d\n", t.remote.name, t.id, t.subscriptionCount, len(cases))
 
 					err = binary.Write(writer, binary.LittleEndian, common.BLTradeDTO{
-						Mix:   common.EncodeCmd(common.CmdSubRes, req.stock),
-						AskId: req.hs,
+						Sid:    -common.CmdSubRes,
+						Volume: req.sid,
 					})
 				}
 			}
@@ -260,12 +266,12 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	}
 }
 
-func (t *Transport) Allocate(stock int32, etag int32, handshake int32) {
-	t.cmds <- TransportCmd{stock, etag, handshake}
+func (t *Transport) Allocate(stock int32, etag int32, sid int16) {
+	t.cmds <- TransportCmd{stock, etag, sid}
 }
 
-func (t *Transport) Unallocate(handshake int32) {
-	t.cmds <- TransportCmd{-1, 0, handshake}
+func (t *Transport) Unallocate(sid int16) {
+	t.cmds <- TransportCmd{-1, 0, sid}
 }
 
 func (t *Transport) Shape() {

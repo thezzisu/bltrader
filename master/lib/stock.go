@@ -158,7 +158,7 @@ type StockOrderDep struct {
 
 type StockSubscribeRequest struct {
 	etag   int32
-	result chan chan *common.BLOrderDTO
+	result chan chan *common.BLOrder
 }
 
 type StockHandler struct {
@@ -209,8 +209,8 @@ func (sh *StockHandler) InitDeps() {
 	}
 }
 
-func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
-	result := make(chan chan *common.BLOrderDTO)
+func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrder {
+	result := make(chan chan *common.BLOrder)
 	sh.subscribes <- &StockSubscribeRequest{etag, result}
 	ch := <-result
 	return ch
@@ -229,7 +229,7 @@ func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
 
 func (sh *StockHandler) SendLoop() {
 	info := CreateStockInfo(sh.stockId)
-	var ch chan *common.BLOrderDTO
+	var ch chan *common.BLOrder
 	var lastTag int32
 	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
 
@@ -238,7 +238,7 @@ func (sh *StockHandler) SendLoop() {
 		if !eager {
 			close(ch)
 		}
-		ch = make(chan *common.BLOrderDTO)
+		ch = make(chan *common.BLOrder)
 		req.result <- ch
 		info.Seek(req.etag)
 		fmt.Fprintf(f, "Seek at %d\n", req.etag)
@@ -253,11 +253,9 @@ subscribeLoop:
 		if order == nil {
 			// Send finished
 			// Write EOF to remote
-			dto := new(common.BLOrderDTO)
-			common.MarshalOrderDTO(&common.BLOrder{
-				StkCode: sh.stockId,
+			order := &common.BLOrder{
 				OrderId: -1,
-			}, dto)
+			}
 
 			select {
 			// New subscriber
@@ -265,7 +263,7 @@ subscribeLoop:
 				replace(req, false)
 
 			// EOF sent, waiting for new subscriber
-			case ch <- dto:
+			case ch <- order:
 				close(ch)
 				req := <-sh.subscribes
 				replace(req, true)
@@ -295,13 +293,10 @@ subscribeLoop:
 			}
 		}
 
-		dto := new(common.BLOrderDTO)
-		common.MarshalOrderDTO(order, dto)
-
 		select {
 		case req := <-sh.subscribes:
 			replace(req, false)
-		case ch <- dto:
+		case ch <- order:
 			lastTag = order.OrderId
 			fmt.Fprintf(f, "%d\n", order.OrderId)
 		}

@@ -11,13 +11,20 @@ import (
 	"github.com/thezzisu/bltrader/core"
 )
 
+type BLTradeComp struct {
+	BidId  int32
+	AskId  int32
+	Price  int32
+	Volume int16
+}
+
 type TradeStore struct {
-	size   int                     // cache size
-	source chan *common.BLTradeDTO // data source
-	cache  []*common.BLTradeDTO    // Use DTO to reduce memory usage
-	offset int                     // index of last trade in cache
-	last   int32                   // the id of last trade
-	eod    bool                    // flag to indicate the end of data
+	size   int               // cache size
+	source chan *BLTradeComp // data source
+	cache  []*BLTradeComp    // Use DTO to reduce memory usage
+	offset int               // index of last trade in cache
+	last   int32             // the id of last trade
+	eod    bool              // flag to indicate the end of data
 	mutex  sync.RWMutex
 	fetch  sync.Mutex
 }
@@ -25,8 +32,8 @@ type TradeStore struct {
 func CreateTradeStore(size int) *TradeStore {
 	ts := new(TradeStore)
 	ts.size = size
-	ts.source = make(chan *common.BLTradeDTO, size)
-	ts.cache = make([]*common.BLTradeDTO, size)
+	ts.source = make(chan *BLTradeComp, size)
+	ts.cache = make([]*BLTradeComp, size)
 	ts.offset = -1
 	ts.last = 0
 	ts.eod = false
@@ -67,7 +74,7 @@ func (ts *TradeStore) Ensure(id int32) {
 	}
 }
 
-func (ts *TradeStore) TryGet(id int32) (*common.BLTradeDTO, bool) {
+func (ts *TradeStore) TryGet(id int32) (*BLTradeComp, bool) {
 	ts.mutex.RLock()
 	defer ts.mutex.RUnlock()
 
@@ -84,7 +91,7 @@ func (ts *TradeStore) TryGet(id int32) (*common.BLTradeDTO, bool) {
 	return nil, false
 }
 
-func (ts *TradeStore) Get(id int32) *common.BLTradeDTO {
+func (ts *TradeStore) Get(id int32) *BLTradeComp {
 	dto, ok := ts.TryGet(id)
 	if ok {
 		return dto
@@ -97,7 +104,7 @@ func (ts *TradeStore) Get(id int32) *common.BLTradeDTO {
 type TradeReader struct {
 	store *TradeStore
 	ptr   int32 // self offset
-	C     chan *common.BLTradeDTO
+	C     chan *BLTradeComp
 	cmd   chan struct{}
 	die   chan struct{}
 }
@@ -106,7 +113,7 @@ func CreateTradeReader(store *TradeStore, etag int32) *TradeReader {
 	t := new(TradeReader)
 	t.store = store
 	t.ptr = etag
-	t.C = make(chan *common.BLTradeDTO)
+	t.C = make(chan *BLTradeComp)
 	t.cmd = make(chan struct{})
 	t.die = make(chan struct{})
 	return t
@@ -139,7 +146,7 @@ func (t *TradeReader) Close() {
 
 type StockSubscribeRequest struct {
 	etag   int32
-	result chan chan *common.BLTradeDTO
+	result chan chan *BLTradeComp
 }
 
 type StockHandler struct {
@@ -159,8 +166,8 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	return sh
 }
 
-func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTradeDTO {
-	result := make(chan chan *common.BLTradeDTO)
+func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *BLTradeComp {
+	result := make(chan chan *BLTradeComp)
 	sh.subscribes[name] <- &StockSubscribeRequest{etag, result}
 	ch := <-result
 	return ch
@@ -168,7 +175,7 @@ func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTrad
 
 func (sh *StockHandler) SendLoop(name string) {
 	subscribe := sh.subscribes[name]
-	var ch chan *common.BLTradeDTO
+	var ch chan *BLTradeComp
 	var reader *TradeReader
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
@@ -177,7 +184,7 @@ func (sh *StockHandler) SendLoop(name string) {
 			close(ch)
 			reader.Close()
 		}
-		ch = make(chan *common.BLTradeDTO)
+		ch = make(chan *BLTradeComp)
 		req.result <- ch
 		reader = CreateTradeReader(sh.store, req.etag)
 		go reader.FetchLoop()
@@ -190,7 +197,7 @@ subscribeLoop:
 		// Since we just subscribed, reader's fetchloop isn't blocked
 		reader.cmd <- struct{}{}
 
-		var dto *common.BLTradeDTO
+		var dto *BLTradeComp
 	readLoop:
 		for {
 			select {
@@ -210,11 +217,9 @@ subscribeLoop:
 		if dto == nil {
 			// Send finished
 			// Write EOF to remote
-			dto := new(common.BLTradeDTO)
-			common.MarshalTradeDTO(&common.BLTrade{
-				StkCode: sh.stockId,
-				AskId:   -1,
-			}, dto)
+			comp := &BLTradeComp{
+				AskId: -1,
+			}
 
 			select {
 			// New subscriber
@@ -222,7 +227,7 @@ subscribeLoop:
 				replace(req, false)
 
 			// EOF sent, waiting for new subscriber
-			case ch <- dto:
+			case ch <- comp:
 				close(ch)
 				reader.Close()
 				replace(<-subscribe, true)
@@ -351,10 +356,13 @@ func (sh *StockHandler) MergeLoop() {
 		if order.Volume != 0 {
 			trades := blr.Dispatch(order)
 			for _, trade := range trades {
-				var dto common.BLTradeDTO
-				common.MarshalTradeDTO(&trade, &dto)
 				fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
-				sh.store.source <- &dto
+				sh.store.source <- &BLTradeComp{
+					BidId:  trade.BidId,
+					AskId:  trade.AskId,
+					Price:  common.PriceF2I(trade.Price),
+					Volume: int16(trade.Volume),
+				}
 			}
 		}
 	}

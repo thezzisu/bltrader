@@ -5,15 +5,19 @@ import (
 	"math"
 )
 
+func PriceF2I(price float64) int32 {
+	return int32(math.Round(price * 100))
+}
+
+func PriceI2F(price int32) float64 {
+	return float64(price) / 100
+}
+
 const (
 	CmdSubReq = 0
 	CmdSubRes = 1
 	CmdUnsub  = 2
 )
-
-func IsCmd(mix int32) bool {
-	return mix < 0
-}
 
 func EncodeCmd(cmd int32, payload int32) int32 {
 	return -((cmd<<16 | payload) + 1)
@@ -43,35 +47,35 @@ func (order BLOrder) String() string {
 }
 
 type BLOrderDTO struct {
-	Mix     int32
+	Sid     int16
+	Mix     int8
+	Volume  int16
 	OrderId int32
 	Price   int32
 }
 
-func MarshalOrderDTO(order *BLOrder, dto *BLOrderDTO) {
-	mix := order.Volume
-	mix |= order.StkCode << 24
+func MarshalOrderDTO(sid int16, order *BLOrder, dto *BLOrderDTO) {
+	dto.Sid = sid
+	var mix int8 = int8(order.Type)
 	if order.Direction == -1 {
-		mix |= 1 << 23
+		mix |= 1 << 3
 	}
-	mix |= order.Type << 20
-
-	dto.Mix = mix
+	dto.Mix = int8(order.Type)<<4 | int8(order.Direction)<<7
+	dto.Volume = int16(order.Volume)
 	dto.OrderId = order.OrderId
-	dto.Price = int32(math.Round(order.Price * 100))
+	dto.Price = PriceF2I(order.Price)
 }
 
-func UnmarshalOrderDTO(dto *BLOrderDTO, order *BLOrder) {
-	var direction int32 = 1
-	if dto.Mix&(1<<23) != 0 {
-		direction = -1
-	}
-	order.StkCode = dto.Mix >> 24
+func UnmarshalOrderDTO(stock int32, dto *BLOrderDTO, order *BLOrder) {
+	order.StkCode = stock
 	order.OrderId = dto.OrderId
-	order.Direction = direction
-	order.Type = dto.Mix >> 20 & 7
-	order.Price = float64(dto.Price) / 100
-	order.Volume = dto.Mix & 0xfffff
+	order.Direction = 1
+	if dto.Mix&(1<<3) != 0 {
+		order.Direction = -1
+	}
+	order.Type = int32(dto.Mix & 7)
+	order.Price = PriceI2F(dto.Price)
+	order.Volume = int32(dto.Volume)
 }
 
 type BLTrade struct {
@@ -87,28 +91,27 @@ func (trade BLTrade) String() string {
 }
 
 type BLTradeDTO struct {
-	Mix   int32
-	BidId int32
-	AskId int32
-	Price int32
+	Sid    int16
+	Volume int16
+	BidId  int32
+	AskId  int32
+	Price  int32
 }
 
-func MarshalTradeDTO(trade *BLTrade, dto *BLTradeDTO) {
-	mix := trade.Volume
-	mix |= trade.StkCode << 24
-
-	dto.Mix = mix
+func MarshalTradeDTO(sid int16, trade *BLTrade, dto *BLTradeDTO) {
+	dto.Sid = sid
+	dto.Volume = int16(trade.Volume)
 	dto.BidId = trade.BidId
 	dto.AskId = trade.AskId
-	dto.Price = int32(math.Round(trade.Price * 100))
+	dto.Price = PriceF2I(trade.Price)
 }
 
-func UnmarshalTradeDTO(dto *BLTradeDTO, trade *BLTrade) {
-	trade.StkCode = dto.Mix >> 24
+func UnmarshalTradeDTO(stock int32, dto *BLTradeDTO, trade *BLTrade) {
+	trade.StkCode = stock
 	trade.BidId = dto.BidId
 	trade.AskId = dto.AskId
-	trade.Price = float64(dto.Price) / 100
-	trade.Volume = dto.Mix & 0xfffff
+	trade.Price = PriceI2F(dto.Price)
+	trade.Volume = int32(dto.Volume)
 }
 
 type BLHook struct {
