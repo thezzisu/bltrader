@@ -148,7 +148,7 @@ func (r *Remote) RecvLoop() {
 				case common.CmdSubRes: // Subscribe response, use AskId as handshake
 					// Logger.Printf("DEBUG handle CmdSubRes hs=%d\n", dto.AskId)
 					if req, ok := pending[dto.AskId]; ok {
-						ch := make(chan *common.BLTrade, 128)
+						ch := make(chan *common.BLTrade)
 						subscription[req.stock] = RemoteSubscription{
 							ch:  ch,
 							hs:  dto.AskId,

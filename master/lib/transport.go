@@ -42,7 +42,7 @@ func CreateTransport(remote *Remote, id int, pair common.RPCPair) *Transport {
 	t.die = make(chan struct{})
 	t.incomingConn = make(chan net.Conn)
 	t.subscriptionCount = 0
-	t.cmds = make(chan TransportCmd, 16)
+	t.cmds = make(chan TransportCmd)
 
 	return t
 }

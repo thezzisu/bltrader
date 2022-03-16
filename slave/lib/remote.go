@@ -159,7 +159,7 @@ func (r *Remote) RecvLoop() {
 					}
 
 				case common.CmdUnsub:
-					// Logger.Printf("DEBUG handle CmdSubRes stk=%d hs=%d\n", payload, dto.OrderId)
+					// Logger.Printf("DEBUG handle CmdUnsub stk=%d hs=%d\n", payload, dto.OrderId)
 					if k, ok := allocations[payload]; ok {
 						r.transportMutex.RLock()
 						if len(r.transports) > k { // Make sure we have that transport

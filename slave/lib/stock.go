@@ -37,6 +37,12 @@ func (ts *TradeStore) Close() {
 	close(ts.source)
 }
 
+func (ts *TradeStore) Last() int32 {
+	ts.mutex.RLock()
+	defer ts.mutex.RUnlock()
+	return ts.last
+}
+
 func (ts *TradeStore) Ensure(id int32) {
 	ts.fetch.Lock()
 	defer ts.fetch.Unlock()
@@ -132,8 +138,8 @@ func (t *TradeReader) Close() {
 }
 
 type StockSubscribeRequest struct {
-	etag int32
-	ch   chan *common.BLTradeDTO
+	etag   int32
+	result chan chan *common.BLTradeDTO
 }
 
 type StockHandler struct {
@@ -153,21 +159,11 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	return sh
 }
 
-// TODO optimize this function
 func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTradeDTO {
-	ch := make(chan *common.BLTradeDTO)
-	timer := time.NewTimer(time.Millisecond * 100)
-	select {
-	case sh.subscribes[name] <- &StockSubscribeRequest{etag: etag, ch: ch}:
-		if !timer.Stop() {
-			<-timer.C
-		}
-		return ch
-
-	case <-timer.C:
-		close(ch)
-		return nil
-	}
+	result := make(chan chan *common.BLTradeDTO)
+	sh.subscribes[name] <- &StockSubscribeRequest{etag, result}
+	ch := <-result
+	return ch
 }
 
 func (sh *StockHandler) SendLoop(name string) {
@@ -181,27 +177,34 @@ func (sh *StockHandler) SendLoop(name string) {
 			close(ch)
 			reader.Close()
 		}
-		ch = req.ch
+		ch = make(chan *common.BLTradeDTO)
+		req.result <- ch
 		reader = CreateTradeReader(sh.store, req.etag)
 		go reader.FetchLoop()
 	}
 
 	replace(<-subscribe, true)
 
+subscribeLoop:
 	for {
-		select {
-		case reader.cmd <- struct{}{}:
-		case req := <-subscribe:
-			replace(req, false)
-			continue
-		}
+		// Since we just subscribed, reader's fetchloop isn't blocked
+		reader.cmd <- struct{}{}
 
 		var dto *common.BLTradeDTO
-		select {
-		case dto = <-reader.C:
-		case req := <-subscribe:
-			replace(req, false)
-			continue
+	readLoop:
+		for {
+			select {
+			case dto = <-reader.C:
+				break readLoop
+
+			case req := <-subscribe:
+				if req.etag == sh.store.Last() {
+					req.result <- nil
+				} else {
+					replace(req, false)
+					continue subscribeLoop
+				}
+			}
 		}
 
 		if dto == nil {

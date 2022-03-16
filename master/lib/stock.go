@@ -210,7 +210,7 @@ func (sh *StockHandler) InitDeps() {
 }
 
 func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrderDTO {
-	result := make(chan chan *common.BLOrderDTO, 128)
+	result := make(chan chan *common.BLOrderDTO)
 	sh.subscribes <- &StockSubscribeRequest{etag, result}
 	ch := <-result
 	return ch
