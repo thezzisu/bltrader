@@ -214,6 +214,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 						hs:    req.hs,
 					})
 					atomic.AddInt32(&t.subscriptionCount, 1)
+					Logger.Printf("Transport %s %d\tSendLoop count = %d len = %d\n", t.remote.name, t.id, t.subscriptionCount, len(cases))
 
 					err = binary.Write(writer, binary.LittleEndian, common.BLTradeDTO{
 						Mix:   common.EncodeCmd(common.CmdSubRes, req.stock),
@@ -231,6 +232,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			}
 			if !ok {
 				remove(chosen)
+				Logger.Printf("Transport %s %d\tSendLoop count = %d len = %d\n", t.remote.name, t.id, t.subscriptionCount, len(cases))
 				if len(cases) <= SPECIAL {
 					Logger.Println("Transport\tSendLoop", "request reshape")
 					t.remote.reshape <- struct{}{}
