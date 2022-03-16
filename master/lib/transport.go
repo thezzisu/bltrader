@@ -279,7 +279,6 @@ func (t *Transport) SendLoop(conn net.Conn) {
 }
 
 func (t *Transport) Allocate(stock int32, etag int32, handshake int32) {
-	atomic.AddInt32(&t.subscriptionCount, 1)
 	t.cmds <- TransportCmd{stock, etag, handshake}
 }
 
