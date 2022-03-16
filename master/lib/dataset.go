@@ -17,6 +17,7 @@ var ChunkCount int
 func InitDataset() {
 	lastPrev = loadDataSetFloat64(path.Join(Config.CacheDir, "stage-1", "last_prev.bin"))
 	Logger.Printf("last prev loaded (%d)\n", len(lastPrev))
+	Logger.Println(lastPrev)
 	ChunkCount = 0
 	for {
 		_, err := os.Stat(path.Join(Config.CacheDir, "stage-1", "0", fmt.Sprintf("order_id.%d.bin", ChunkCount)))
@@ -100,7 +101,7 @@ func LoadOrderChunk(stock int32, chunk int) []common.BLOrder {
 	n := len(ids)
 	items := make([]common.BLOrder, n)
 	for i := 0; i < n; i++ {
-		if types[i] == 0 && (prices[i] < lower || prices[i] > upper) {
+		if types[i] == 0 && (prices[i] <= lower || prices[i] >= upper) {
 			volumes[i] = 0
 		}
 		items[i] = common.BLOrder{
