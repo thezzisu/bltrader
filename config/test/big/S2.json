@@ -18,5 +18,5 @@
   "ProcessTimeoutMs": 100,
   "FlushIntervalMs": 100,
   "SendBufferSize": 1400,
-  "TradeStoreSize": 1000000
+  "TradeStoreSize": 10000000
 }
