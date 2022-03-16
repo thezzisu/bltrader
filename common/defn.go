@@ -60,7 +60,7 @@ func MarshalOrderDTO(sid int16, order *BLOrder, dto *BLOrderDTO) {
 	if order.Direction == -1 {
 		mix |= 1 << 3
 	}
-	dto.Mix = int8(order.Type)<<4 | int8(order.Direction)<<7
+	dto.Mix = mix
 	dto.Volume = int16(order.Volume)
 	dto.OrderId = order.OrderId
 	dto.Price = PriceF2I(order.Price)
