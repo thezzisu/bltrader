@@ -1,5 +1,14 @@
 package lib
 
-import "log"
+import (
+	"io"
+	"log"
+	"os"
+)
 
-var Logger = log.New(log.Writer(), "", log.LstdFlags)
+var Logger *log.Logger
+
+func init() {
+	f, _ := os.Create("log.txt")
+	Logger = log.New(io.MultiWriter(os.Stderr, f), "", log.LstdFlags)
+}
