@@ -230,6 +230,15 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				remove(rand.Intn(len(cases)-SPECIAL) + SPECIAL)
 
 			default: //Subscribe
+				pos := 0
+				for i := SPECIAL; i < len(cases); i++ {
+					if subs[i].stock == req.stock {
+						pos = i
+					}
+				}
+				if pos != 0 {
+					remove(pos)
+				}
 				ch := t.hub.stocks[req.stock].Subscribe(req.etag)
 				if ch != nil {
 					cases = append(cases, reflect.SelectCase{
