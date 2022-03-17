@@ -254,7 +254,7 @@ func (r *Remote) ShaperLoop() {
 		loadStr := ""
 		for i, t := range r.transports {
 			count := atomic.LoadInt32(&t.subscriptionCount)
-			loadStr += " " + string(count)
+			loadStr += fmt.Sprintf(" %d", count)
 			if count < min {
 				min = count
 			}
@@ -263,7 +263,7 @@ func (r *Remote) ShaperLoop() {
 				k = i
 			}
 		}
-		Logger.Printf("Remote\tShaper %s load \033[34m%s\033[0m", r.name, loadStr)
+		Logger.Printf("Remote\tShaper %s load\033[34m%s\033[0m", r.name, loadStr)
 		if max >= 2 && max-min > 1 {
 			Logger.Printf("Remote\tShaper %s shape transport %d", r.name, k)
 			r.transports[k].Shape()
