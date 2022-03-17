@@ -58,6 +58,9 @@ func (ts *TradeStore) Ensure(id int32) {
 			if ts.offset >= ts.size {
 				ts.offset = 0
 			}
+			if ts.cache[ts.offset] != nil {
+				TradeCompCache.Put(ts.cache[ts.offset])
+			}
 			ts.cache[ts.offset] = dto
 			ts.last++
 		}
@@ -144,7 +147,7 @@ type StockHandler struct {
 	hub        *Hub
 	stockId    int32
 	subscribes map[string]chan *StockSubscribeRequest
-	datas      map[string]chan *common.BLOrder
+	datas      map[string]chan *common.BLOrderComp
 	store      *TradeStore
 }
 
@@ -153,7 +156,7 @@ func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
 	sh.hub = hub
 	sh.stockId = stockId
 	sh.subscribes = make(map[string]chan *StockSubscribeRequest)
-	sh.datas = make(map[string]chan *common.BLOrder)
+	sh.datas = make(map[string]chan *common.BLOrderComp)
 	return sh
 }
 
@@ -293,8 +296,8 @@ func (sh *StockHandler) MergeLoop() {
 	blr := new(core.BLRunner)
 	blr.Load("")
 
-	caches := make([]*common.BLOrder, 0)
-	sources := make([]chan *common.BLOrder, 0)
+	caches := make([]*common.BLOrderComp, 0)
+	sources := make([]chan *common.BLOrderComp, 0)
 	for _, data := range sh.datas {
 		caches = append(caches, nil)
 		sources = append(sources, data)
@@ -325,14 +328,14 @@ func (sh *StockHandler) MergeLoop() {
 		}
 		chosen, recv, ok := reflect.Select(cases[:m])
 		if ok {
-			caches[locs[chosen]] = recv.Interface().(*common.BLOrder)
+			caches[locs[chosen]] = recv.Interface().(*common.BLOrderComp)
 		} else {
 			remove(locs[chosen])
 		}
 	}
 
 	lastId := int32(0)
-	next := func() *common.BLOrder {
+	next := func() *common.BLOrderComp {
 		for k, v := range caches {
 			if v != nil && v.OrderId == lastId+1 {
 				caches[k] = nil
@@ -359,14 +362,15 @@ func (sh *StockHandler) MergeLoop() {
 
 		if order.Volume != 0 {
 			trades := blr.Dispatch(order)
+			OrderCompCache.Put(order)
 			for _, trade := range trades {
 				// fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
-				sh.store.source <- &common.BLTradeComp{
-					BidId:  trade.BidId,
-					AskId:  trade.AskId,
-					Price:  trade.Price,
-					Volume: trade.Volume,
-				}
+				tradeComp := TradeCompCache.Get().(*common.BLTradeComp)
+				tradeComp.BidId = trade.BidId
+				tradeComp.AskId = trade.AskId
+				tradeComp.Price = trade.Price
+				tradeComp.Volume = trade.Volume
+				sh.store.source <- tradeComp
 			}
 		}
 	}
@@ -387,7 +391,7 @@ func (sh *StockHandler) Start() {
 	sh.store = CreateTradeStore(cacheSize)
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)
-		sh.datas[master.Name] = make(chan *common.BLOrder, 10000000)
+		sh.datas[master.Name] = make(chan *common.BLOrderComp, 10000000)
 
 		sh.hub.wg.Add(1)
 		go sh.SendLoop(master.Name)

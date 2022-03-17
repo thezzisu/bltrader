@@ -137,3 +137,22 @@ type BLTradeComp struct {
 func (trade BLTradeComp) String() string {
 	return fmt.Sprintf("TradeComp {\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.BidId, trade.AskId, PriceI2F(trade.Price), trade.Volume)
 }
+
+type BLOrderComp struct {
+	OrderId   int32
+	Direction int8
+	Type      int8
+	Price     int32
+	Volume    int16
+}
+
+func OrderD2C(dto *BLOrderDTO, comp *BLOrderComp) {
+	comp.OrderId = dto.OrderId
+	comp.Direction = -1
+	if dto.Mix&(1<<3) != 0 {
+		comp.Direction = -1
+	}
+	comp.Type = dto.Mix & 7
+	comp.Price = dto.Price
+	comp.Volume = dto.Volume
+}

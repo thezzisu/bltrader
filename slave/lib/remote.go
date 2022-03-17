@@ -16,7 +16,7 @@ import (
 type LocalSubscribeRequest struct {
 	stock  int32
 	etag   int32
-	result chan chan *common.BLOrder
+	result chan chan *common.BLOrderComp
 }
 
 type RemotePacket struct {
@@ -27,7 +27,7 @@ type RemotePacket struct {
 type LocalSubscription struct {
 	sid   int16
 	stock int32
-	ch    chan *common.BLOrder
+	ch    chan *common.BLOrderComp
 	src   int
 }
 
@@ -163,7 +163,7 @@ func (r *Remote) RecvLoop() {
 				case common.CmdSubRes: // Subscribe response, use Volume as sid
 					sid := dto.Volume
 					if req, ok := pending[sid]; ok {
-						ch := make(chan *common.BLOrder, 1000000)
+						ch := make(chan *common.BLOrderComp, 1000000)
 						subscription[sid] = LocalSubscription{
 							sid:   sid,
 							stock: req.stock,
@@ -190,30 +190,24 @@ func (r *Remote) RecvLoop() {
 					stock := dto.OrderId
 					id := dto.Price
 					comp := r.hub.stocks[stock].Peek(id)
-					if comp == nil {
-						r.command <- &common.BLTradeDTO{
-							Sid:    -common.CmdPeekRes,
-							Volume: -1,
-							AskId:  stock,
-							BidId:  id,
-						}
-					} else {
-						r.command <- &common.BLTradeDTO{
-							Sid:    -common.CmdPeekRes,
-							Volume: comp.Volume,
-							AskId:  stock,
-							BidId:  id,
-						}
+					dto := TradeDtoCache.Get().(*common.BLTradeDTO)
+					dto.Sid = -common.CmdPeekRes
+					dto.Volume = -1
+					if comp != nil {
+						dto.Volume = comp.Volume
 					}
+					dto.AskId = stock
+					dto.BidId = id
+					r.command <- dto
 				}
 			} else {
 				sid := dto.Sid
 				if sub, ok := subscription[sid]; ok && sub.src == packet.src && sub.sid == sid {
-					var order common.BLOrder
-					common.UnmarshalOrderDTO(sub.stock, dto, &order)
+					orderComp := OrderCompCache.Get().(*common.BLOrderComp)
+					common.OrderD2C(dto, orderComp)
 					timer := time.NewTimer(processTimeout)
 					select {
-					case sub.ch <- &order:
+					case sub.ch <- orderComp:
 						if !timer.Stop() {
 							<-timer.C
 						}
@@ -222,13 +216,14 @@ func (r *Remote) RecvLoop() {
 						Logger.Printf("Remote\tClose session %d reason TIMEOUT", sid)
 						close(sub.ch)
 						delete(subscription, sid)
-						r.command <- &common.BLTradeDTO{
-							Sid:    -common.CmdUnsub,
-							Volume: sub.sid,
-						}
+						dto := TradeDtoCache.Get().(*common.BLTradeDTO)
+						dto.Sid = -common.CmdUnsub
+						dto.Volume = sub.sid
+						r.command <- dto
 					}
 				}
 			}
+			OrderDtoCache.Put(dto)
 
 		case hs := <-expired:
 			if req, ok := pending[hs]; ok {
@@ -247,12 +242,12 @@ func (r *Remote) RecvLoop() {
 
 			sid := nextSid()
 			pending[sid] = req
-			r.command <- &common.BLTradeDTO{
-				Sid:    -common.CmdSubReq,
-				AskId:  req.stock,
-				Price:  req.etag,
-				Volume: sid,
-			}
+			dto := TradeDtoCache.Get().(*common.BLTradeDTO)
+			dto.Sid = -common.CmdSubReq
+			dto.AskId = req.stock
+			dto.Price = req.etag
+			dto.Volume = sid
+			r.command <- dto
 			go func(sid int16) {
 				time.Sleep(subscribeTimeout)
 				expired <- sid
@@ -304,9 +299,9 @@ func (r *Remote) Start() {
 }
 
 // **NOTICE** return value might be nil
-func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrder {
+func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLOrderComp {
 	Logger.Printf("Remote\tAsk master \033[33m%s\033[0m for stock \033[33m%d\033[0m since order \033[33m%d\033[0m\n", r.name, stock, etag)
-	result := make(chan chan *common.BLOrder)
+	result := make(chan chan *common.BLOrderComp)
 	r.subscribes <- LocalSubscribeRequest{stock: stock, etag: etag, result: result}
 	ch := <-result
 	return ch
