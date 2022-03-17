@@ -206,6 +206,7 @@ subscribeLoop:
 
 			case req := <-subscribe:
 				if req.etag == sh.store.Last() {
+					Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[33m%d\033[0m current \033[33m%d\033[0m BLOCK\n", sh.stockId, name, req.etag, sh.store.last)
 					req.result <- nil
 				} else {
 					replace(req, false)
