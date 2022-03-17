@@ -13,17 +13,6 @@ import (
 
 const SoSize = 10
 
-//const SoSize = 12
-
-/*
-type BLTradeComp struct {
-	BidId  int32
-	AskId  int32
-	Price  int32
-	Volume int16
-}
-*/
-
 type ShortOrder struct {
 	OrderId int32
 	Price   int32

@@ -135,5 +135,5 @@ type BLTradeComp struct {
 }
 
 func (trade BLTradeComp) String() string {
-	return fmt.Sprintf("Trade {\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.BidId, trade.AskId, PriceI2F(trade.Price), trade.Volume)
+	return fmt.Sprintf("TradeComp {\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.BidId, trade.AskId, PriceI2F(trade.Price), trade.Volume)
 }

@@ -15,7 +15,7 @@ import (
 type TransportCmd struct {
 	stock int32
 	sid   int16
-	ch    <-chan *BLTradeComp
+	ch    <-chan *common.BLTradeComp
 }
 
 type TransportSubscription struct {
@@ -245,7 +245,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				}
 				continue
 			}
-			trade := recv.Interface().(*BLTradeComp)
+			trade := recv.Interface().(*common.BLTradeComp)
 			err = binary.Write(writer, binary.LittleEndian, common.BLTradeDTO{
 				Sid:    subs[chosen].sid,
 				Volume: trade.Volume,
@@ -263,7 +263,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	}
 }
 
-func (t *Transport) Add(stock int32, sid int16, ch <-chan *BLTradeComp) {
+func (t *Transport) Add(stock int32, sid int16, ch <-chan *common.BLTradeComp) {
 	atomic.AddInt32(&t.pendingCount, 1)
 	t.cmds <- TransportCmd{stock, sid, ch}
 }
