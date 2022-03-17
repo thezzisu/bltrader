@@ -3,7 +3,7 @@ import sys
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--std', type=str, nargs=1)
-parser.add_argument('--out', type=int, nargs=1)
+parser.add_argument('--out', type=str, nargs=1)
 args = parser.parse_args()
 STD_PREFIX = args.std[0]
 OUT_PREFIX = args.out[0]
