@@ -109,12 +109,13 @@ func (r *Remote) Allocate(stock int32, etag int32, sid int16) int {
 		// just do not allocate at all!
 		return -1
 	}
-	bestK, bestV := 0, atomic.LoadInt32(&r.transports[0].subscriptionCount)
+	bestK, bestV, bestW := 0, atomic.LoadInt32(&r.transports[0].subscriptionCount), atomic.LoadInt32(&r.transports[0].pendingCount)
 	for i := 1; i < len(r.transports); i++ {
 		v := atomic.LoadInt32(&r.transports[i].subscriptionCount)
-		if v < bestV {
-			bestK, bestV = i, v
-		} else if v == bestV && rand.Int()&1 == 0 {
+		w := atomic.LoadInt32(&r.transports[i].pendingCount)
+		if v < bestV || v == bestV && w < bestW {
+			bestK, bestV, bestW = i, v, w
+		} else if v == bestV && w == bestW && rand.Int()&1 == 0 {
 			bestK = i
 		}
 	}

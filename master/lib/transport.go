@@ -35,6 +35,7 @@ type Transport struct {
 	dieOnce           sync.Once
 	incomingConn      chan net.Conn
 	subscriptionCount int32
+	pendingCount      int32
 	ready             int32
 	cmds              chan TransportCmd
 }
@@ -253,6 +254,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 						ts:    nextStamp(),
 					})
 					atomic.AddInt32(&t.subscriptionCount, 1)
+					atomic.AddInt32(&t.pendingCount, -1)
 
 					err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
 						Sid:    -common.CmdSubRes,
@@ -288,6 +290,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 }
 
 func (t *Transport) Allocate(stock int32, etag int32, sid int16) {
+	atomic.AddInt32(&t.pendingCount, 1)
 	t.cmds <- TransportCmd{stock, etag, sid}
 }
 
