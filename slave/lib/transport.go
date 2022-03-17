@@ -3,7 +3,6 @@ package lib
 import (
 	"bufio"
 	"encoding/binary"
-	"math/rand"
 	"net"
 	"reflect"
 	"sync"
@@ -22,6 +21,7 @@ type TransportCmd struct {
 type TransportSubscription struct {
 	stock int32
 	sid   int16
+	ts    uint16
 }
 
 type Transport struct {
@@ -145,8 +145,14 @@ func (t *Transport) RecvLoop(conn net.Conn) {
 }
 
 func (t *Transport) SendLoop(conn net.Conn) {
+	var stamp uint16 = 0
+	nextStamp := func() uint16 {
+		stamp++
+		return stamp
+	}
 	writer := bufio.NewWriterSize(conn, Config.SendBufferSize)
 	timeout := time.Duration(Config.FlushIntervalMs) * time.Millisecond
+	ticker := time.NewTicker(timeout)
 	var err error
 
 	const SPECIAL = 3
@@ -154,6 +160,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	subs := make([]TransportSubscription, SPECIAL)
 	cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.remote.command)}
 	cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.cmds)}
+	cases[2] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ticker.C)}
 
 	remove := func(pos int) {
 		cases[pos] = cases[len(cases)-1]
@@ -164,25 +171,13 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	}
 
 	for {
-		timer := time.NewTimer(timeout)
-		cases[2] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(timer.C),
-		}
-
 		chosen, recv, ok := reflect.Select(cases)
 		switch chosen {
 		case 0: // Handle remote's command
-			if !timer.Stop() {
-				<-timer.C
-			}
 			dto := recv.Interface().(*common.BLTradeDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
 
 		case 1: // Handle transport's command
-			if !timer.Stop() {
-				<-timer.C
-			}
 			req := recv.Interface().(TransportCmd)
 			switch req.stock {
 			case -1: // Unsubscribe
@@ -200,7 +195,14 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				if len(cases) <= SPECIAL {
 					continue
 				}
-				remove(rand.Intn(len(cases)-SPECIAL) + SPECIAL)
+				pos := SPECIAL
+				for i := SPECIAL + 1; i < len(cases); i++ {
+					// Choose the oldest subscription
+					if subs[i].ts < subs[pos].ts {
+						pos = i
+					}
+				}
+				remove(pos)
 
 			default: //Subscribe
 				pos := 0
@@ -221,6 +223,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 					subs = append(subs, TransportSubscription{
 						stock: req.stock,
 						sid:   req.sid,
+						ts:    nextStamp(),
 					})
 					atomic.AddInt32(&t.subscriptionCount, 1)
 
@@ -235,9 +238,6 @@ func (t *Transport) SendLoop(conn net.Conn) {
 			err = writer.Flush()
 
 		default:
-			if !timer.Stop() {
-				<-timer.C
-			}
 			if !ok {
 				remove(chosen)
 				if len(cases) <= SPECIAL {
