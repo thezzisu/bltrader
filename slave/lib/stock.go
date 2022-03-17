@@ -256,6 +256,7 @@ subscribe:
 		ch := remote.Subscribe(sh.stockId, etag)
 		fmt.Fprintf(f, "Subscribed since %d\n", etag)
 		if ch == nil {
+			time.Sleep(timeout)
 			Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) RETRY\n", sh.stockId, name)
 			continue
 		}

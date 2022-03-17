@@ -320,6 +320,7 @@ subscribe:
 		writer.Flush()
 		ch := sh.remote.Subscribe(sh.stockId, lastId)
 		if ch == nil {
+			time.Sleep(timeout)
 			continue
 		}
 		for {

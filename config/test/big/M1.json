@@ -16,7 +16,7 @@
   ],
   "StockRecvTimeoutMs": 1000,
   "ShaperIntervalMs": 30000,
-  "SubscribeTimeoutMs": 2000,
+  "SubscribeTimeoutMs": 5000,
   "ProcessTimeoutMs": 100,
   "FlushIntervalMs": 100,
   "SendBufferSize": 1400
