@@ -9,17 +9,14 @@ args = parser.parse_args()
 PREFIX = args.prefix[0]
 STK = args.stk[0]
 FILE = PREFIX + "/trade" + str(STK + 1)
-OUT = "trade" + str(STK + 1) + ".txt"
+OUT = "trade" + str(STK) + ".txt"
 
-arr = []
 with open(FILE, 'rb') as f:
-  while True:
-    buf = f.read(24)
-    if not buf:
-      break
-    arr.append(struct.unpack("=iiidi", buf))
-with open(OUT, 'w') as f:
-  print(len(arr),file = f)
-  for i in arr:
-    _, a, b, c, d = i
-    print(STK, a, b, c, d, file = f)
+  with open(OUT, 'w') as g:
+    while True:
+      buf = f.read(24)
+      if not buf:
+        break
+      _, a, b, c, d = struct.unpack("=iiidi", buf)
+      print("%d %d %d %.06f %d" % (STK, b, a, c, d), file = g)
+
