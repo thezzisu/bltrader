@@ -148,7 +148,7 @@ type BLOrderComp struct {
 
 func OrderD2C(dto *BLOrderDTO, comp *BLOrderComp) {
 	comp.OrderId = dto.OrderId
-	comp.Direction = -1
+	comp.Direction = 1
 	if dto.Mix&(1<<3) != 0 {
 		comp.Direction = -1
 	}
