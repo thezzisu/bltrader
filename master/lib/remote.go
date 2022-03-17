@@ -186,6 +186,14 @@ func (r *Remote) RecvLoop() {
 						r.transportMutex.RUnlock()
 						delete(allocation, sid)
 					}
+
+				case common.CmdPeekRes: // Peek response
+					volume := dto.Volume
+					if volume != -1 {
+						stock := dto.AskId
+						id := dto.BidId
+						r.hub.stocks[stock].TradeHook(id, int32(volume))
+					}
 				}
 			} else {
 				sid := dto.Sid
@@ -289,4 +297,13 @@ func (r *Remote) Subscribe(stock int32, etag int32) <-chan *common.BLTrade {
 	r.subscribes <- LocalSubscribeRequest{stock: stock, etag: etag, result: result}
 	ch := <-result
 	return ch
+}
+
+func (r *Remote) RequestPeek(stock int32, id int32) {
+	Logger.Printf("Remote\tPeek slave \033[33m%s\033[0m stock \033[33m%d\033[0m trade \033[33m%d\033[0m\n", r.name, stock, id)
+	r.command <- &common.BLOrderDTO{
+		Sid:     -common.CmdPeekReq,
+		OrderId: stock,
+		Price:   id,
+	}
 }

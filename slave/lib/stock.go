@@ -383,6 +383,12 @@ func (sh *StockHandler) MergeLoop() {
 	sh.hub.wg.Done()
 }
 
+func (sh *StockHandler) Peek(id int32) *BLTradeComp {
+	Logger.Printf("Stock \033[33m%d\033[0m\tPeek \033[33m%d\033[0m\n", sh.stockId, id)
+	comp, _ := sh.store.TryGet(id)
+	return comp
+}
+
 func (sh *StockHandler) Start() {
 	cacheSize := Config.TradeStoreSize
 	sh.store = CreateTradeStore(cacheSize)

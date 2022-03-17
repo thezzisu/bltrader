@@ -151,9 +151,11 @@ func (si *StockInfo) Next() *common.BLOrder {
 }
 
 type StockOrderDep struct {
-	arg int32
-	val int32
-	ch  chan struct{}
+	targetStk int32
+	targetId  int32
+	arg       int32
+	val       int32
+	ch        chan struct{}
 }
 
 type StockSubscribeRequest struct {
@@ -201,8 +203,10 @@ func (sh *StockHandler) Interest(tradeId int32, dep *StockOrderDep) {
 func (sh *StockHandler) InitDeps() {
 	for _, hook := range sh.hooks {
 		dep := StockOrderDep{
-			arg: hook.Arg,
-			ch:  make(chan struct{}),
+			targetStk: hook.TargetStkCode,
+			targetId:  hook.TargetTradeIdx,
+			arg:       hook.Arg,
+			ch:        make(chan struct{}),
 		}
 		sh.deps[hook.SelfOrderId] = &dep
 		sh.hub.stocks[hook.TargetStkCode].Interest(hook.TargetTradeIdx, &dep)
@@ -216,11 +220,11 @@ func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrder {
 	return ch
 }
 
-func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
+func (sh *StockHandler) TradeHook(tradeId int32, volume int32) {
 	if deps, ok := sh.interested[tradeId]; ok {
 		Logger.Printf("Stock \033[33m%d\033[0m\tHooked \033[32m%d\033[0m\n", sh.stockId, tradeId)
 		for _, dep := range deps {
-			dep.val = trade.Volume
+			dep.val = volume
 			close(dep.ch)
 		}
 	}
@@ -282,6 +286,7 @@ subscribeLoop:
 
 				case req := <-sh.subscribes:
 					if req.etag == lastTag {
+						sh.remote.RequestPeek(dep.targetStk, dep.targetId)
 						Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since \033[31m%d\033[0m\n", sh.stockId, req.etag)
 						req.result <- nil
 					} else {
@@ -338,7 +343,7 @@ subscribe:
 					break subscribe
 				}
 				lastId++
-				sh.TradeHook(lastId, trade)
+				sh.TradeHook(lastId, trade.Volume)
 				binary.Write(writer, nativeEndian, sh.stockId+1)
 				binary.Write(writer, nativeEndian, trade.BidId)
 				binary.Write(writer, nativeEndian, trade.AskId)

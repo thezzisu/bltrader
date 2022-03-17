@@ -14,9 +14,11 @@ func PriceI2F(price int32) float64 {
 }
 
 const (
-	CmdSubReq = 1
-	CmdSubRes = 2
-	CmdUnsub  = 3
+	CmdSubReq  = 1
+	CmdSubRes  = 2
+	CmdUnsub   = 3
+	CmdPeekReq = 4
+	CmdPeekRes = 5
 )
 
 func EncodeCmd(cmd int32, payload int32) int32 {

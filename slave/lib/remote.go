@@ -185,6 +185,26 @@ func (r *Remote) RecvLoop() {
 						r.transportMutex.RUnlock()
 						delete(allocation, sid)
 					}
+
+				case common.CmdPeekReq:
+					stock := dto.OrderId
+					id := dto.Price
+					comp := r.hub.stocks[stock].Peek(id)
+					if comp == nil {
+						r.command <- &common.BLTradeDTO{
+							Sid:    -common.CmdPeekRes,
+							Volume: -1,
+							AskId:  stock,
+							BidId:  id,
+						}
+					} else {
+						r.command <- &common.BLTradeDTO{
+							Sid:    -common.CmdPeekRes,
+							Volume: comp.Volume,
+							AskId:  stock,
+							BidId:  id,
+						}
+					}
 				}
 			} else {
 				sid := dto.Sid
