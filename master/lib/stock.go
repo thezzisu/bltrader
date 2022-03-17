@@ -218,7 +218,7 @@ func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrder {
 
 func (sh *StockHandler) TradeHook(tradeId int32, trade *common.BLTrade) {
 	if deps, ok := sh.interested[tradeId]; ok {
-		Logger.Printf("Stock \033[33m%d\033[0m\tHooked \033[33m%d\033[0m\n", sh.stockId, tradeId)
+		Logger.Printf("Stock \033[33m%d\033[0m\tHooked \033[32m%d\033[0m\n", sh.stockId, tradeId)
 		for _, dep := range deps {
 			dep.val = trade.Volume
 			close(dep.ch)
@@ -320,6 +320,7 @@ subscribe:
 		ch := sh.remote.Subscribe(sh.stockId, lastId)
 		if ch == nil {
 			time.Sleep(timeout)
+			Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop RETRY\n", sh.stockId)
 			continue
 		}
 		for {
@@ -330,6 +331,7 @@ subscribe:
 					<-timer.C
 				}
 				if !ok {
+					Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop DIE\n", sh.stockId)
 					continue subscribe
 				}
 				if trade.AskId == -1 {
@@ -343,7 +345,7 @@ subscribe:
 				binary.Write(writer, nativeEndian, trade.Price)
 				binary.Write(writer, nativeEndian, trade.Volume)
 			case <-timer.C:
-				// Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop timeout\n", sh.stockId)
+				Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop TIMEOUT\n", sh.stockId)
 				continue subscribe
 			}
 		}
