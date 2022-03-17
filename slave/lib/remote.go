@@ -194,6 +194,7 @@ func (r *Remote) RecvLoop() {
 						}
 
 					case <-timer.C:
+						Logger.Println("CLOSED DUE TO TIMEOUT")
 						close(sub.ch)
 						delete(subscription, sid)
 						r.command <- &common.BLTradeDTO{
@@ -213,6 +214,7 @@ func (r *Remote) RecvLoop() {
 		case req := <-r.subscribes:
 			if sid, ok := stockMap[req.stock]; ok {
 				if sub, ok := subscription[sid]; ok {
+					Logger.Println("CLOSED DUE TO RESUB")
 					close(sub.ch)
 					delete(subscription, sid)
 				}
