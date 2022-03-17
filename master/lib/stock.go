@@ -292,7 +292,7 @@ subscribeLoop:
 
 				case req := <-sh.subscribes:
 					if req.etag == lastTag {
-						sh.remote.RequestPeek(dep.targetStk, dep.targetId)
+						sh.hub.remotes[StockMap[dep.targetStk]].RequestPeek(dep.targetStk, dep.targetId)
 						Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since \033[31m%d\033[0m\n", sh.stockId, req.etag)
 						req.result <- nil
 					} else {
