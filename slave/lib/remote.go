@@ -158,7 +158,7 @@ func (r *Remote) RecvLoop() {
 				case common.CmdSubRes: // Subscribe response, use Volume as sid
 					sid := dto.Volume
 					if req, ok := pending[sid]; ok {
-						ch := make(chan *common.BLOrder)
+						ch := make(chan *common.BLOrder, 1000000)
 						subscription[sid] = LocalSubscription{
 							sid:   sid,
 							stock: req.stock,
