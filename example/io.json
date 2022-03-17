@@ -1,8 +1,0 @@
-{
-  "order_file": "/home/gcc314/dev/Go/bltrader/bl2/bltrader/datas/100x100x100/order_id1.h5",
-  "price_file": "/home/gcc314/dev/Go/bltrader/bl2/bltrader/datas/100x100x100/price1.h5",
-  "volume_file": "/home/gcc314/dev/Go/bltrader/bl2/bltrader/datas/100x100x100/volume1.h5",
-  "type_file": "/home/gcc314/dev/Go/bltrader/bl2/bltrader/datas/100x100x100/type1.h5",
-  "direction_file": "/home/gcc314/dev/Go/bltrader/bl2/bltrader/datas/100x100x100/direction1.h5",
-  "cache_dir": "/home/gcc314/dev/Go/bltrader/bl2/bltrader/.data/cache"
-}
