@@ -3,12 +3,17 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 
 	"github.com/thezzisu/bltrader/master/lib"
 )
 
 func main() {
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:61926", nil))
+	}()
 	flag.Parse()
 
 	runtime.GOMAXPROCS(lib.Config.Procs)
