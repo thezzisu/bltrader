@@ -380,7 +380,7 @@ func (sh *StockHandler) Start() {
 	sh.store = CreateTradeStore(cacheSize)
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)
-		sh.datas[master.Name] = make(chan *common.BLOrder, 1000000)
+		sh.datas[master.Name] = make(chan *common.BLOrder, 10000000)
 
 		sh.hub.wg.Add(1)
 		go sh.SendLoop(master.Name)
