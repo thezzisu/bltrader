@@ -7,7 +7,7 @@ import (
 type LinkNode struct {
 	next    *LinkNode
 	OrderId int32
-	Volume  int32
+	Volume  int16
 }
 
 type Queue struct {
@@ -15,7 +15,7 @@ type Queue struct {
 	tail *LinkNode
 }
 
-func (queue *Queue) Push(p *sync.Pool, oid int32, vol int32) {
+func (queue *Queue) Push(p *sync.Pool, oid int32, vol int16) {
 	v := p.Get().(*LinkNode)
 	v.OrderId = oid
 	v.Volume = vol

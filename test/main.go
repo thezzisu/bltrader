@@ -162,15 +162,15 @@ func main() {
 		_ = os.Remove("./buy_cache")
 		_ = os.Remove("./sell_cache")
 	}
-	result := make([]common.BLTrade, 0)
+	result := make([]common.BLTradeComp, 0)
 	func() {
 		blr := new(core.BLRunner)
-		blr.Load()
+		blr.Load("")
 		if *isdump {
 			for i := 0; i < aosize; i++ {
 				if i == *position {
 					fmt.Printf("[Dump] Succeeded in Dump,the trade offset = %d\n", len(result))
-					blr.Dump()
+					blr.Dump("")
 				}
 				if _, ok := hooked[aorder[i].OrderId]; ok {
 					continue
@@ -207,13 +207,13 @@ func main() {
 				fmt.Println(result[i-*trade_offset].String())
 				break
 			}
-			if trades[*stk_code][i].Price != result[i-*trade_offset].Price {
+			if trades[*stk_code][i].Price != common.PriceI2F(result[i-*trade_offset].Price) {
 				fmt.Printf("Differ At: %d\n", i)
 				fmt.Println(trades[*stk_code][i].String())
 				fmt.Println(result[i-*trade_offset].String())
 				break
 			}
-			if trades[*stk_code][i].Volume != result[i-*trade_offset].Volume {
+			if trades[*stk_code][i].Volume != int32(result[i-*trade_offset].Volume) {
 				fmt.Printf("Differ At: %d\n", i)
 				fmt.Println(trades[*stk_code][i].String())
 				fmt.Println(result[i-*trade_offset].String())
