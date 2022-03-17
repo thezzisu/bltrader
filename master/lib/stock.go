@@ -231,17 +231,17 @@ func (sh *StockHandler) SendLoop() {
 	info := CreateStockInfo(sh.stockId)
 	var ch chan *common.BLOrder
 	var lastTag int32
-	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
+	// f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
-		Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since \033[33m%d\033[0m\n", sh.stockId, req.etag)
+		Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since \033[32m%d\033[0m\n", sh.stockId, req.etag)
 		if !eager {
 			close(ch)
 		}
 		ch = make(chan *common.BLOrder)
 		req.result <- ch
 		info.Seek(req.etag)
-		fmt.Fprintf(f, "Seek at %d\n", req.etag)
+		// fmt.Fprintf(f, "Seek at %d\n", req.etag)
 		lastTag = req.etag
 	}
 
@@ -283,7 +283,7 @@ subscribeLoop:
 
 				case req := <-sh.subscribes:
 					if req.etag == lastTag {
-						Logger.Println("BLOCK\t\t", sh.stockId, order.OrderId)
+						Logger.Printf("Stock \033[33m%d\033[0m\tSlave subscribed since \033[31m%d\033[0m\n", sh.stockId, req.etag)
 						req.result <- nil
 					} else {
 						replace(req, false)
@@ -298,7 +298,7 @@ subscribeLoop:
 			replace(req, false)
 		case ch <- order:
 			lastTag = order.OrderId
-			fmt.Fprintf(f, "%d\n", order.OrderId)
+			// fmt.Fprintf(f, "%d\n", order.OrderId)
 		}
 	}
 }

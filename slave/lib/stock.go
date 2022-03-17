@@ -1,8 +1,6 @@
 package lib
 
 import (
-	"fmt"
-	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -179,7 +177,7 @@ func (sh *StockHandler) SendLoop(name string) {
 	var reader *TradeReader
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
-		Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[33m%d\033[0m current \033[33m%d\033[0m\n", sh.stockId, name, req.etag, sh.store.last)
+		Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[32m%d\033[0m current \033[32m%d\033[0m\n", sh.stockId, name, req.etag, sh.store.last)
 		if !eager {
 			close(ch)
 			reader.Close()
@@ -206,7 +204,7 @@ subscribeLoop:
 
 			case req := <-subscribe:
 				if req.etag == sh.store.Last() {
-					Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[33m%d\033[0m current \033[33m%d\033[0m BLOCK\n", sh.stockId, name, req.etag, sh.store.last)
+					Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[31m%d\033[0m current \033[31m%d\033[0m\n", sh.stockId, name, req.etag, sh.store.last)
 					req.result <- nil
 				} else {
 					replace(req, false)
@@ -249,12 +247,12 @@ func (sh *StockHandler) RecvLoop(name string) {
 	data := sh.datas[name]
 	etag := int32(0)
 	timeout := time.Millisecond * time.Duration(Config.StockHandlerTimeoutMs)
-	f, _ := os.Create(fmt.Sprintf("stock-%d-%s.txt", sh.stockId, name))
+	// f, _ := os.Create(fmt.Sprintf("stock-%d-%s.txt", sh.stockId, name))
 
 subscribe:
 	for {
 		ch := remote.Subscribe(sh.stockId, etag)
-		fmt.Fprintf(f, "Subscribed since %d\n", etag)
+		// fmt.Fprintf(f, "Subscribed since %d\n", etag)
 		if ch == nil {
 			time.Sleep(timeout)
 			Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) RETRY\n", sh.stockId, name)
@@ -275,7 +273,7 @@ subscribe:
 					break subscribe
 				}
 				etag = order.OrderId
-				fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
+				// fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
 				data <- order
 
 			case <-timer.C:
@@ -343,8 +341,8 @@ func (sh *StockHandler) MergeLoop() {
 		return nil
 	}
 
-	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
-	g, _ := os.Create(fmt.Sprintf("trade-%d.txt", sh.stockId))
+	// f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
+	// g, _ := os.Create(fmt.Sprintf("trade-%d.txt", sh.stockId))
 	for n > 0 {
 		order := next()
 		for n > 0 && order == nil {
@@ -355,12 +353,12 @@ func (sh *StockHandler) MergeLoop() {
 			break
 		}
 
-		fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
+		// fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
 
 		if order.Volume != 0 {
 			trades := blr.Dispatch(order)
 			for _, trade := range trades {
-				fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
+				// fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
 				sh.store.source <- &BLTradeComp{
 					BidId:  trade.BidId,
 					AskId:  trade.AskId,
