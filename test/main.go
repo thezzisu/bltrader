@@ -175,14 +175,26 @@ func main() {
 				if _, ok := hooked[aorder[i].OrderId]; ok {
 					continue
 				}
-				result = append(result, blr.Dispatch(&aorder[i])...)
+				var ao common.BLOrderComp
+				ao.OrderId = aorder[i].OrderId
+				ao.Direction = int8(aorder[i].Direction)
+				ao.Type = int8(aorder[i].Type)
+				ao.Price = common.PriceF2I(aorder[i].Price)
+				ao.Volume = int16(aorder[i].Volume)
+				result = append(result, blr.Dispatch(&ao)...)
 			}
 		} else {
 			for i := *position; i < aosize; i++ {
 				if _, ok := hooked[aorder[i].OrderId]; ok {
 					continue
 				}
-				result = append(result, blr.Dispatch(&aorder[i])...)
+				var ao common.BLOrderComp
+				ao.OrderId = aorder[i].OrderId
+				ao.Direction = int8(aorder[i].Direction)
+				ao.Type = int8(aorder[i].Type)
+				ao.Price = common.PriceF2I(aorder[i].Price)
+				ao.Volume = int16(aorder[i].Volume)
+				result = append(result, blr.Dispatch(&ao)...)
 			}
 		}
 	}()
