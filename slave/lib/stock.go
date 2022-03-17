@@ -247,10 +247,19 @@ func (sh *StockHandler) RecvLoop(name string) {
 	data := sh.datas[name]
 	etag := int32(0)
 	timeout := time.Millisecond * time.Duration(Config.StockHandlerTimeoutMs)
+	bufferSize := cap(data)
+	limit := bufferSize / 2
+	// 100ms wait timeout
+	waitTimeout := time.Millisecond * 100
 	// f, _ := os.Create(fmt.Sprintf("stock-%d-%s.txt", sh.stockId, name))
 
 subscribe:
 	for {
+		Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) Buffer %d/%d\n", sh.stockId, name, len(data), bufferSize)
+		for len(data) > limit {
+			time.Sleep(waitTimeout)
+		}
+
 		ch := remote.Subscribe(sh.stockId, etag)
 		// fmt.Fprintf(f, "Subscribed since %d\n", etag)
 		if ch == nil {
