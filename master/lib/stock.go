@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -164,14 +165,15 @@ type StockSubscribeRequest struct {
 }
 
 type StockHandler struct {
-	hub        *Hub
-	remote     *Remote
-	stockId    int32
-	hooks      []common.BLHook
-	dataDir    string
-	interested map[int32][]*StockOrderDep
-	deps       map[int32]*StockOrderDep
-	subscribes chan *StockSubscribeRequest
+	hub             *Hub
+	remote          *Remote
+	stockId         int32
+	hooks           []common.BLHook
+	dataDir         string
+	interested      map[int32][]*StockOrderDep
+	interestedMutex sync.Mutex
+	deps            map[int32]*StockOrderDep
+	subscribes      chan *StockSubscribeRequest
 }
 
 func CreateStockHandler(hub *Hub, stockId int32) *StockHandler {
@@ -221,12 +223,16 @@ func (sh *StockHandler) Subscribe(etag int32) <-chan *common.BLOrder {
 }
 
 func (sh *StockHandler) TradeHook(tradeId int32, volume int32) {
+	sh.interestedMutex.Lock()
+	defer sh.interestedMutex.Unlock()
+
 	if deps, ok := sh.interested[tradeId]; ok {
 		Logger.Printf("Stock \033[33m%d\033[0m\tHooked \033[32m%d\033[0m\n", sh.stockId, tradeId)
 		for _, dep := range deps {
 			dep.val = volume
 			close(dep.ch)
 		}
+		delete(sh.interested, tradeId)
 	}
 }
 
