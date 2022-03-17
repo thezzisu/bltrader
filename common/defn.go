@@ -124,3 +124,14 @@ type BLHook struct {
 func (hook BLHook) String() string {
 	return fmt.Sprintf("Hook {\n\tself_order = %d\n\ttarget_stk = %d\n\ttarget_trade = %d\n\targ = %d\n}", hook.SelfOrderId, hook.TargetStkCode, hook.TargetTradeIdx, hook.Arg)
 }
+
+type BLTradeComp struct {
+	BidId  int32
+	AskId  int32
+	Price  int32
+	Volume int16
+}
+
+func (trade BLTradeComp) String() string {
+	return fmt.Sprintf("Trade {\n\tbid = %d\n\task = %d\n\tprice = %f\n\tvolume = %d\n}", trade.BidId, trade.AskId, PriceI2F(trade.Price), trade.Volume)
+}

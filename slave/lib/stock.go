@@ -291,7 +291,7 @@ subscribe:
 
 func (sh *StockHandler) MergeLoop() {
 	blr := new(core.BLRunner)
-	blr.Load()
+	blr.Load("")
 
 	caches := make([]*common.BLOrder, 0)
 	sources := make([]chan *common.BLOrder, 0)
