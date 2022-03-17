@@ -256,6 +256,7 @@ subscribe:
 		ch := remote.Subscribe(sh.stockId, etag)
 		fmt.Fprintf(f, "Subscribed since %d\n", etag)
 		if ch == nil {
+			Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) RETRY\n", sh.stockId, name)
 			continue
 		}
 		for {
@@ -266,6 +267,7 @@ subscribe:
 					<-timer.C
 				}
 				if !ok {
+					Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) DIE\n", sh.stockId, name)
 					continue subscribe
 				}
 				if order.OrderId == -1 {
@@ -276,7 +278,7 @@ subscribe:
 				data <- order
 
 			case <-timer.C:
-				// Logger.Printf("Stock %d\tRecvLoop (%s) timeout\n", sh.stockId, name)
+				Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) TIMEOUT\n", sh.stockId, name)
 				continue subscribe
 			}
 		}

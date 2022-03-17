@@ -260,7 +260,7 @@ func (r *Remote) ShaperLoop() {
 				k = i
 			}
 		}
-		if max >= 2 && max-min > 0 {
+		if max >= 2 && max-min > 1 {
 			Logger.Printf("Remote\tShaper master %s with transport %d", r.name, k)
 			r.transports[k].Shape()
 		}
