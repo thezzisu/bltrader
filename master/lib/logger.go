@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -10,6 +11,7 @@ import (
 var Logger *log.Logger
 
 func init() {
-	f, _ := os.Create(time.Now().Format("yyyy-MM-dd_HH-mm-ss") + ".log.txt")
+	now := time.Now()
+	f, _ := os.Create(fmt.Sprintf("%d-%d-%d_%d-%d-%d.master.log.txt", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second()))
 	Logger = log.New(io.MultiWriter(os.Stderr, f), "", log.LstdFlags)
 }
