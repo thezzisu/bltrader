@@ -16,8 +16,8 @@ import (
 
 type TransportCmd struct {
 	stock int32
-	etag  int32
 	sid   int16
+	ch    <-chan *common.BLOrder
 }
 
 type TransportSubscription struct {
@@ -242,25 +242,22 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				if pos != 0 {
 					remove(pos)
 				}
-				ch := t.hub.stocks[req.stock].Subscribe(req.etag)
-				if ch != nil {
-					cases = append(cases, reflect.SelectCase{
-						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(ch),
-					})
-					subs = append(subs, TransportSubscription{
-						stock: req.stock,
-						sid:   req.sid,
-						ts:    nextStamp(),
-					})
-					atomic.AddInt32(&t.subscriptionCount, 1)
-					atomic.AddInt32(&t.pendingCount, -1)
+				cases = append(cases, reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(req.ch),
+				})
+				subs = append(subs, TransportSubscription{
+					stock: req.stock,
+					sid:   req.sid,
+					ts:    nextStamp(),
+				})
+				atomic.AddInt32(&t.subscriptionCount, 1)
+				atomic.AddInt32(&t.pendingCount, -1)
 
-					err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
-						Sid:    -common.CmdSubRes,
-						Volume: req.sid,
-					})
-				}
+				err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
+					Sid:    -common.CmdSubRes,
+					Volume: req.sid,
+				})
 			}
 
 		case 2: //Handle timeout
@@ -289,15 +286,15 @@ func (t *Transport) SendLoop(conn net.Conn) {
 	}
 }
 
-func (t *Transport) Allocate(stock int32, etag int32, sid int16) {
+func (t *Transport) Add(stock int32, sid int16, ch <-chan *common.BLOrder) {
 	atomic.AddInt32(&t.pendingCount, 1)
-	t.cmds <- TransportCmd{stock, etag, sid}
+	t.cmds <- TransportCmd{stock, sid, ch}
 }
 
 func (t *Transport) Unallocate(sid int16) {
-	t.cmds <- TransportCmd{-1, 0, sid}
+	t.cmds <- TransportCmd{-1, sid, nil}
 }
 
 func (t *Transport) Shape() {
-	t.cmds <- TransportCmd{-2, 0, 0}
+	t.cmds <- TransportCmd{-2, 0, nil}
 }

@@ -102,6 +102,10 @@ func (r *Remote) MainLoop() {
 }
 
 func (r *Remote) Allocate(stock int32, etag int32, sid int16) int {
+	ch := r.hub.stocks[stock].Subscribe(r.name, etag)
+	if ch == nil {
+		return -1
+	}
 	r.transportMutex.RLock()
 	defer r.transportMutex.RUnlock()
 	if len(r.transports) == 0 {
@@ -119,7 +123,7 @@ func (r *Remote) Allocate(stock int32, etag int32, sid int16) int {
 			bestK = i
 		}
 	}
-	r.transports[bestK].Allocate(stock, etag, sid)
+	r.transports[bestK].Add(stock, sid, ch)
 	return bestK
 }
 

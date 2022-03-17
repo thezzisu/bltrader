@@ -102,6 +102,10 @@ func (r *Remote) MainLoop() {
 }
 
 func (r *Remote) Allocate(stock int32, etag int32, sid int16) int {
+	ch := r.hub.stocks[stock].Subscribe(etag)
+	if ch == nil {
+		return -1
+	}
 	r.transportMutex.RLock()
 	defer r.transportMutex.RUnlock()
 	if len(r.transports) == 0 {
@@ -120,7 +124,7 @@ func (r *Remote) Allocate(stock int32, etag int32, sid int16) int {
 		}
 	}
 	// Logger.Printf("Remote\tSlave %s asked me for stock %d since order no.%d reply with %d\n", r.name, stock, etag, bestK)
-	r.transports[bestK].Allocate(stock, etag, sid)
+	r.transports[bestK].Add(stock, sid, ch)
 	return bestK
 }
 
