@@ -43,6 +43,7 @@ func (ts *TradeStore) HandleLoop() {
 	spinTimeout := time.Millisecond * 100
 	for {
 		for int(ts.last-ts.tag) > ts.overflow {
+			Logger.Println("Store FUCKED!!!", ts.last, ts.tag, ts.last-ts.tag)
 			time.Sleep(spinTimeout)
 		}
 
