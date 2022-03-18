@@ -306,7 +306,11 @@ func (sh *StockHandler) MergeLoop() {
 		}
 		chosen, recv, ok := reflect.Select(cases[:m])
 		if ok {
-			caches[locs[chosen]] = recv.Interface().(*common.BLOrderComp)
+			comp := recv.Interface().(*common.BLOrderComp)
+			if comp == nil {
+				Logger.Fatalln("FUCKED")
+			}
+			caches[locs[chosen]] = comp
 		} else {
 			remove(locs[chosen])
 		}
