@@ -234,10 +234,10 @@ func (r *Remote) RecvLoop() {
 				}
 			}
 
-		case hs := <-expired:
-			if req, ok := pending[hs]; ok {
+		case sid := <-expired:
+			if req, ok := pending[sid]; ok {
 				req.result <- nil
-				delete(pending, hs)
+				delete(pending, sid)
 			}
 
 		case req := <-r.subscribes:
