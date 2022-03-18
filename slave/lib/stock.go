@@ -43,7 +43,6 @@ func (ts *TradeStore) HandleLoop() {
 	spinTimeout := time.Millisecond * 100
 	for {
 		for int(ts.last-ts.tag) > ts.overflow {
-			Logger.Println("Store FUCKED!!!", ts.last, ts.tag, ts.last-ts.tag)
 			time.Sleep(spinTimeout)
 		}
 
@@ -223,6 +222,7 @@ subscribe:
 	for {
 		Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) Buffer %d/%d\n", sh.stockId, name, len(data), bufferSize)
 		for len(data) > limit {
+			Logger.Printf("Stock \033[33m%d\033[0m\tRecvLoop (\033[33m%s\033[0m) Buffer %d/%d SPIN\n", sh.stockId, name, len(data), bufferSize)
 			time.Sleep(waitTimeout)
 		}
 
