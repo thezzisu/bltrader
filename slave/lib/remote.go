@@ -172,7 +172,7 @@ func (r *Remote) RecvLoop() {
 						if retry {
 							req.result <- nil
 						} else {
-							ch := make(chan *common.BLOrderComp, 1000000)
+							ch := make(chan *common.BLOrderComp)
 							subscription[sid] = LocalSubscription{
 								sid:   sid,
 								stock: req.stock,
