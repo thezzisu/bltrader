@@ -53,7 +53,7 @@ func CreateRemote(hub *Hub, name string) *Remote {
 	r.name = name
 	r.incoming = make(chan RemotePacket, 128)
 	r.subscribes = make(chan LocalSubscribeRequest)
-	r.command = make(chan *common.BLTradeDTO)
+	r.command = make(chan *common.BLTradeDTO, 16)
 	r.reshape = make(chan struct{}, 16)
 	return r
 }
@@ -104,6 +104,11 @@ func (r *Remote) MainLoop() {
 func (r *Remote) Allocate(stock int32, etag int32, sid int16) int {
 	ch := r.hub.stocks[stock].Subscribe(r.name, etag)
 	if ch == nil {
+		r.command <- &common.BLTradeDTO{
+			Sid:    -common.CmdSubRes,
+			Volume: sid,
+			AskId:  0,
+		}
 		return -1
 	}
 	r.transportMutex.RLock()
@@ -162,16 +167,21 @@ func (r *Remote) RecvLoop() {
 
 				case common.CmdSubRes: // Subscribe response, use Volume as sid
 					sid := dto.Volume
+					retry := dto.OrderId == 0
 					if req, ok := pending[sid]; ok {
-						ch := make(chan *common.BLOrderComp, 1000000)
-						subscription[sid] = LocalSubscription{
-							sid:   sid,
-							stock: req.stock,
-							ch:    ch,
-							src:   packet.src,
+						if retry {
+							req.result <- nil
+						} else {
+							ch := make(chan *common.BLOrderComp, 1000000)
+							subscription[sid] = LocalSubscription{
+								sid:   sid,
+								stock: req.stock,
+								ch:    ch,
+								src:   packet.src,
+							}
+							stockMap[req.stock] = sid
+							req.result <- ch
 						}
-						stockMap[req.stock] = sid
-						req.result <- ch
 						delete(pending, sid)
 					}
 

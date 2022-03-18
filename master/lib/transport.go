@@ -255,8 +255,9 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				atomic.AddInt32(&t.pendingCount, -1)
 
 				err = binary.Write(writer, binary.LittleEndian, common.BLOrderDTO{
-					Sid:    -common.CmdSubRes,
-					Volume: req.sid,
+					Sid:     -common.CmdSubRes,
+					Volume:  req.sid,
+					OrderId: 1,
 				})
 			}
 

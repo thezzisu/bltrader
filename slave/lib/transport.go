@@ -231,6 +231,7 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				err = binary.Write(writer, binary.LittleEndian, common.BLTradeDTO{
 					Sid:    -common.CmdSubRes,
 					Volume: req.sid,
+					AskId:  1,
 				})
 			}
 
