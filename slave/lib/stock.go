@@ -10,23 +10,27 @@ import (
 )
 
 type TradeStore struct {
-	size   int                      // cache size
-	source chan *common.BLTradeComp // data source
-	cache  []*common.BLTradeComp    // Use DTO to reduce memory usage
-	offset int                      // index of last trade in cache
-	last   int32                    // the id of last trade
-	eod    bool                     // flag to indicate the end of data
-	mutex  sync.RWMutex
-	fetch  sync.Mutex
+	size     int                      // cache size
+	overflow int                      // overflow size
+	source   chan *common.BLTradeComp // data source
+	cache    []*common.BLTradeComp    // Use DTO to reduce memory usage
+	offset   int                      // index of last trade in cache
+	last     int32                    // the id of last trade produced
+	tag      int32                    // the id of last trade consumed
+	eod      bool                     // flag to indicate the end of data
+	mutex    sync.RWMutex
+	tagMutex sync.RWMutex
 }
 
 func CreateTradeStore(size int) *TradeStore {
 	ts := new(TradeStore)
-	ts.size = size
-	ts.source = make(chan *common.BLTradeComp, size)
-	ts.cache = make([]*common.BLTradeComp, size)
+	ts.size = size * 2
+	ts.overflow = size
+	ts.source = make(chan *common.BLTradeComp)
+	ts.cache = make([]*common.BLTradeComp, ts.size)
 	ts.offset = -1
 	ts.last = 0
+	ts.tag = 0
 	ts.eod = false
 	return ts
 }
@@ -35,25 +39,16 @@ func (ts *TradeStore) Close() {
 	close(ts.source)
 }
 
-func (ts *TradeStore) Last() int32 {
-	ts.mutex.RLock()
-	defer ts.mutex.RUnlock()
-	return ts.last
-}
+func (ts *TradeStore) HandleLoop() {
+	spinTimeout := time.Millisecond * 100
+	for {
+		for int(ts.last-ts.tag) > ts.overflow {
+			time.Sleep(spinTimeout)
+		}
 
-func (ts *TradeStore) Ensure(id int32) {
-	ts.fetch.Lock()
-	defer ts.fetch.Unlock()
-
-	if ts.last >= id {
-		return
-	}
-	for ts.last < id && !ts.eod {
-		dto, ok := <-ts.source
-		ts.mutex.Lock()
+		item, ok := <-ts.source
 		if !ok {
-			ts.eod = true
-		} else {
+			ts.mutex.Lock()
 			ts.offset = ts.offset + 1
 			if ts.offset >= ts.size {
 				ts.offset = 0
@@ -61,11 +56,30 @@ func (ts *TradeStore) Ensure(id int32) {
 			if ts.cache[ts.offset] != nil {
 				TradeCompCache.Put(ts.cache[ts.offset])
 			}
-			ts.cache[ts.offset] = dto
+			ts.cache[ts.offset] = item
 			ts.last++
+			ts.mutex.Unlock()
+		} else {
+			ts.mutex.Lock()
+			ts.eod = true
+			ts.mutex.Unlock()
+			break
 		}
-		ts.mutex.Unlock()
 	}
+}
+
+func (ts *TradeStore) Last() int32 {
+	ts.mutex.RLock()
+	defer ts.mutex.RUnlock()
+	return ts.last
+}
+
+func (ts *TradeStore) Tag(tag int32) {
+	ts.tagMutex.Lock()
+	if tag > ts.tag {
+		ts.tag = tag
+	}
+	ts.tagMutex.Unlock()
 }
 
 func (ts *TradeStore) TryGet(id int32) (*common.BLTradeComp, bool) {
@@ -77,65 +91,13 @@ func (ts *TradeStore) TryGet(id int32) (*common.BLTradeComp, bool) {
 		if loc < 0 {
 			loc = loc + ts.size
 		}
+		ts.Tag(id)
 		return ts.cache[loc], true
 	}
 	if ts.eod {
 		return nil, true
 	}
 	return nil, false
-}
-
-func (ts *TradeStore) Get(id int32) *common.BLTradeComp {
-	dto, ok := ts.TryGet(id)
-	if ok {
-		return dto
-	}
-	ts.Ensure(id)
-	dto, _ = ts.TryGet(id)
-	return dto
-}
-
-type TradeReader struct {
-	store *TradeStore
-	ptr   int32 // self offset
-	C     chan *common.BLTradeComp
-	cmd   chan struct{}
-	die   chan struct{}
-}
-
-func CreateTradeReader(store *TradeStore, etag int32) *TradeReader {
-	t := new(TradeReader)
-	t.store = store
-	t.ptr = etag
-	t.C = make(chan *common.BLTradeComp)
-	t.cmd = make(chan struct{})
-	t.die = make(chan struct{})
-	return t
-}
-
-func (t *TradeReader) FetchLoop() {
-	for {
-		select {
-		case <-t.die:
-			close(t.cmd)
-			close(t.C)
-			return
-		case <-t.cmd:
-		}
-		t.ptr++
-		dto := t.store.Get(t.ptr)
-		select {
-		case <-t.die:
-			close(t.cmd)
-			close(t.C)
-			return
-		case t.C <- dto:
-		}
-	}
-}
-
-func (t *TradeReader) Close() {
-	close(t.die)
 }
 
 type StockSubscribeRequest struct {
@@ -170,18 +132,17 @@ func (sh *StockHandler) Subscribe(name string, etag int32) <-chan *common.BLTrad
 func (sh *StockHandler) SendLoop(name string) {
 	subscribe := sh.subscribes[name]
 	var ch chan *common.BLTradeComp
-	var reader *TradeReader
+	var ptr int32
+	spinTimeout := time.Millisecond * 100
 
 	replace := func(req *StockSubscribeRequest, eager bool) {
 		Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[32m%d\033[0m current \033[32m%d\033[0m\n", sh.stockId, name, req.etag, sh.store.last)
 		if !eager {
 			close(ch)
-			reader.Close()
 		}
 		ch = make(chan *common.BLTradeComp)
 		req.result <- ch
-		reader = CreateTradeReader(sh.store, req.etag)
-		go reader.FetchLoop()
+		ptr = req.etag
 	}
 
 	replace(<-subscribe, true)
@@ -189,16 +150,15 @@ func (sh *StockHandler) SendLoop(name string) {
 subscribeLoop:
 	for {
 		// Since we just subscribed, reader's fetchloop isn't blocked
-		reader.cmd <- struct{}{}
-
-		var dto *common.BLTradeComp
-	readLoop:
-		for {
+		ptr++
+		dto, ok := sh.store.TryGet(ptr)
+		for !ok {
+			timer := time.NewTimer(spinTimeout)
 			select {
-			case dto = <-reader.C:
-				break readLoop
-
 			case req := <-subscribe:
+				if !timer.Stop() {
+					<-timer.C
+				}
 				if req.etag == sh.store.Last() {
 					Logger.Printf("Stock \033[33m%d\033[0m\tmaster \033[33m%s\033[0m subscribed since \033[31m%d\033[0m current \033[31m%d\033[0m\n", sh.stockId, name, req.etag, sh.store.last)
 					req.result <- nil
@@ -206,6 +166,9 @@ subscribeLoop:
 					replace(req, false)
 					continue subscribeLoop
 				}
+
+			case <-timer.C:
+				dto, ok = sh.store.TryGet(ptr)
 			}
 		}
 
@@ -224,7 +187,6 @@ subscribeLoop:
 			// EOF sent, waiting for new subscriber
 			case ch <- comp:
 				close(ch)
-				reader.Close()
 				replace(<-subscribe, true)
 			}
 			continue
@@ -389,6 +351,7 @@ func (sh *StockHandler) Peek(id int32) *common.BLTradeComp {
 func (sh *StockHandler) Start() {
 	cacheSize := Config.TradeStoreSize
 	sh.store = CreateTradeStore(cacheSize)
+	go sh.store.HandleLoop()
 	for _, master := range Config.Masters {
 		sh.subscribes[master.Name] = make(chan *StockSubscribeRequest)
 		sh.datas[master.Name] = make(chan *common.BLOrderComp, 10000000)
