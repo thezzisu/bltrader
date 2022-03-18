@@ -47,7 +47,7 @@ func (ts *TradeStore) HandleLoop() {
 		}
 
 		item, ok := <-ts.source
-		if !ok {
+		if ok {
 			ts.mutex.Lock()
 			ts.offset = ts.offset + 1
 			if ts.offset >= ts.size {
