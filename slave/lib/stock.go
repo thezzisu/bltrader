@@ -1,6 +1,8 @@
 package lib
 
 import (
+	"fmt"
+	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -316,8 +318,8 @@ func (sh *StockHandler) MergeLoop() {
 		}
 	}
 
-	// f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
-	// g, _ := os.Create(fmt.Sprintf("trade-%d.txt", sh.stockId))
+	f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
+	g, _ := os.Create(fmt.Sprintf("trade-%d.txt", sh.stockId))
 	for n > 0 {
 		order := next()
 		for n > 0 && order == nil {
@@ -328,14 +330,14 @@ func (sh *StockHandler) MergeLoop() {
 			break
 		}
 
-		// fmt.Fprintf(f, "%d %d %d %d %f %d\n", order.StkCode, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
+		fmt.Fprintf(f, "%d %d %d %d %d %d\n", sh.stockId, order.OrderId, order.Direction, order.Type, order.Price, order.Volume)
 
 		if order.Volume != 0 {
 			trades := blr.Dispatch(order)
 			sh.store.source <- trades
-			// for _, trade := range trades {
-			// fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
-			// }
+			for _, trade := range trades {
+				fmt.Fprintf(g, "%d %d %d %d %d\n", sh.stockId, trade.AskId, trade.BidId, trade.Price, trade.Volume)
+			}
 		}
 	}
 
