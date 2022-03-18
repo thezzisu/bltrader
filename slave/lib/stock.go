@@ -280,6 +280,18 @@ func (sh *StockHandler) MergeLoop() {
 		n--
 	}
 
+	lastId := int32(0)
+	next := func() *common.BLOrderComp {
+		for k, v := range caches {
+			if v != nil && v.OrderId == lastId+1 {
+				caches[k] = nil
+				lastId++
+				return v
+			}
+		}
+		return nil
+	}
+
 	cases := make([]reflect.SelectCase, n)
 	locs := make([]int, n)
 	load := func() {
@@ -292,7 +304,7 @@ func (sh *StockHandler) MergeLoop() {
 			}
 		}
 		if m == 0 {
-			Logger.Printf("%d %d\n", caches[0].OrderId, caches[1].OrderId)
+			Logger.Printf("%d | %d %d\n", lastId, caches[0].OrderId, caches[1].OrderId)
 			Logger.Fatalf("Stock \033[33m%d\033[0m\tMergeLoop no data", sh.stockId)
 		}
 		chosen, recv, ok := reflect.Select(cases[:m])
@@ -301,18 +313,6 @@ func (sh *StockHandler) MergeLoop() {
 		} else {
 			remove(locs[chosen])
 		}
-	}
-
-	lastId := int32(0)
-	next := func() *common.BLOrderComp {
-		for k, v := range caches {
-			if v != nil && v.OrderId == lastId+1 {
-				caches[k] = nil
-				lastId++
-				return v
-			}
-		}
-		return nil
 	}
 
 	// f, _ := os.Create(fmt.Sprintf("stock-%d.txt", sh.stockId))
