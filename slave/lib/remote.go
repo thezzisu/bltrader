@@ -200,7 +200,7 @@ func (r *Remote) RecvLoop() {
 					stock := dto.OrderId
 					id := dto.Price
 					comp := r.hub.stocks[stock].Peek(id)
-					dto := TradeDtoCache.Get().(*common.BLTradeDTO)
+					dto := new(common.BLTradeDTO)
 					dto.Sid = -common.CmdPeekRes
 					dto.Volume = -1
 					if comp != nil {
@@ -213,7 +213,7 @@ func (r *Remote) RecvLoop() {
 			} else {
 				sid := dto.Sid
 				if sub, ok := subscription[sid]; ok && sub.src == packet.src && sub.sid == sid {
-					orderComp := OrderCompCache.Get().(*common.BLOrderComp)
+					orderComp := new(common.BLOrderComp)
 					common.OrderD2C(dto, orderComp)
 					timer := time.NewTimer(processTimeout)
 					select {
@@ -226,14 +226,13 @@ func (r *Remote) RecvLoop() {
 						Logger.Printf("Remote\tClose session %d reason TIMEOUT", sid)
 						close(sub.ch)
 						delete(subscription, sid)
-						dto := TradeDtoCache.Get().(*common.BLTradeDTO)
+						dto := new(common.BLTradeDTO)
 						dto.Sid = -common.CmdUnsub
 						dto.Volume = sub.sid
 						r.command <- dto
 					}
 				}
 			}
-			OrderDtoCache.Put(dto)
 
 		case hs := <-expired:
 			if req, ok := pending[hs]; ok {
@@ -252,7 +251,7 @@ func (r *Remote) RecvLoop() {
 
 			sid := nextSid()
 			pending[sid] = req
-			dto := TradeDtoCache.Get().(*common.BLTradeDTO)
+			dto := new(common.BLTradeDTO)
 			dto.Sid = -common.CmdSubReq
 			dto.AskId = req.stock
 			dto.Price = req.etag

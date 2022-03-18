@@ -131,7 +131,7 @@ func (t *Transport) Handle(conn net.Conn) {
 
 func (t *Transport) RecvLoop(conn net.Conn) {
 	for {
-		dto := OrderDtoCache.Get().(*common.BLOrderDTO)
+		dto := new(common.BLOrderDTO)
 		err := binary.Read(conn, binary.LittleEndian, dto)
 		if err != nil {
 			Logger.Println("Transport\tRecvLoop", err)
@@ -177,7 +177,6 @@ func (t *Transport) SendLoop(conn net.Conn) {
 		case 0: // Handle remote's command
 			dto := recv.Interface().(*common.BLTradeDTO)
 			err = binary.Write(writer, binary.LittleEndian, dto)
-			TradeDtoCache.Put(dto)
 
 		case 1: // Handle transport's command
 			req := recv.Interface().(TransportCmd)
@@ -248,14 +247,13 @@ func (t *Transport) SendLoop(conn net.Conn) {
 				continue
 			}
 			trade := recv.Interface().(*common.BLTradeComp)
-			dto := TradeDtoCache.Get().(*common.BLTradeDTO)
+			dto := new(common.BLTradeDTO)
 			dto.Sid = subs[chosen].sid
 			dto.Volume = trade.Volume
 			dto.BidId = trade.BidId
 			dto.AskId = trade.AskId
 			dto.Price = trade.Price
 			err = binary.Write(writer, binary.LittleEndian, dto)
-			TradeDtoCache.Put(dto)
 		}
 
 		if err != nil {

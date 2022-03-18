@@ -50,7 +50,7 @@ func (ts *TradeStore) HandleLoop() {
 		if ok {
 			ts.mutex.Lock()
 			for _, trade := range trades {
-				tradeComp := TradeCompCache.Get().(*common.BLTradeComp)
+				tradeComp := new(common.BLTradeComp)
 				tradeComp.BidId = trade.BidId
 				tradeComp.AskId = trade.AskId
 				tradeComp.Price = trade.Price
@@ -58,9 +58,6 @@ func (ts *TradeStore) HandleLoop() {
 				ts.offset = ts.offset + 1
 				if ts.offset >= ts.size {
 					ts.offset = 0
-				}
-				if ts.cache[ts.offset] != nil {
-					TradeCompCache.Put(ts.cache[ts.offset])
 				}
 				ts.cache[ts.offset] = tradeComp
 				ts.last++
@@ -331,7 +328,6 @@ func (sh *StockHandler) MergeLoop() {
 
 		if order.Volume != 0 {
 			trades := blr.Dispatch(order)
-			OrderCompCache.Put(order)
 			sh.store.source <- trades
 			// for _, trade := range trades {
 			// fmt.Fprintf(g, "%d %d %d %f %d\n", trade.StkCode, trade.AskId, trade.BidId, trade.Price, trade.Volume)
