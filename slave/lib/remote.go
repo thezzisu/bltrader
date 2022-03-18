@@ -234,7 +234,7 @@ func (r *Remote) RecvLoop() {
 		case req := <-r.subscribes:
 			if sid, ok := stockMap[req.stock]; ok {
 				if sub, ok := subscription[sid]; ok {
-					Logger.Printf("Remote\tClose session %d reason TIMEOUT", sid)
+					Logger.Printf("Remote\tClose session %d reason RESUB", sid)
 					close(sub.ch)
 					delete(subscription, sid)
 				}
