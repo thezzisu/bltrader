@@ -1,0 +1,22 @@
+{
+  "Name": "AS2",
+  "DataDir": "/data/team-11/Data/slave-bigalta",
+  "Magic": 19260818,
+  "Procs": 16,
+  "Masters": [
+    {
+      "Name": "AM1"
+    },
+    {
+      "Name": "AM2"
+    }
+  ],
+  "Stocks": [1, 3, 5, 7, 9],
+  "StockHandlerTimeoutMs": 1000,
+  "ShaperIntervalMs": 30000,
+  "SubscribeTimeoutMs": 3000,
+  "ProcessTimeoutMs": 100,
+  "FlushIntervalMs": 100,
+  "SendBufferSize": 1400,
+  "TradeStoreSize": 10000000
+}

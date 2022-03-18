@@ -1,0 +1,23 @@
+{
+  "Name": "AM1",
+  "CacheDir": "/data/team-11/Data/cache-big",
+  "DataDir": "/data/team-11/Data/master-bigalta",
+  "Magic": 19260818,
+  "Procs": 16,
+  "Slaves": [
+    {
+      "Name": "AS1",
+      "Stocks": [0, 2, 4, 6, 8]
+    },
+    {
+      "Name": "AS2",
+      "Stocks": [1, 3, 5, 7, 9]
+    }
+  ],
+  "StockRecvTimeoutMs": 1000,
+  "ShaperIntervalMs": 30000,
+  "SubscribeTimeoutMs": 3000,
+  "ProcessTimeoutMs": 100,
+  "FlushIntervalMs": 100,
+  "SendBufferSize": 1400
+}
