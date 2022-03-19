@@ -21,3 +21,5 @@ vendor/
 !/dist/.gitkeep
 /vendor-binary/**/*
 !/vendor-binary/.gitkeep
+/env/**/*
+!/env/.gitkeep
