@@ -19,7 +19,5 @@ vendor/
 *.log.txt
 /dist/**/*
 !/dist/.gitkeep
-/vendor-binary/**/*
-!/vendor-binary/.gitkeep
 /env/**/*
 !/env/.gitkeep
