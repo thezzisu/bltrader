@@ -4,6 +4,16 @@ This module is responsible for the preprocess of data.
 
 ## Build
 
+To use vendored sources, add this to your .cargo/config.toml for this project:
+
+```
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+```
+
 If you're using anaconda, please set following environment variables:
 
 ```
