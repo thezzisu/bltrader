@@ -98,6 +98,7 @@ func (ts *TradeStore) TryGet(id int32) (*common.BLTradeComp, bool) {
 		if loc < 0 {
 			loc = loc + ts.size
 		}
+		ts.Tag(id)
 		return ts.cache[loc], true
 	}
 	if ts.eod {
@@ -202,7 +203,6 @@ subscribeLoop:
 		case req := <-subscribe:
 			replace(req, false)
 		case ch <- dto:
-			sh.store.Tag(ptr)
 		}
 	}
 }
